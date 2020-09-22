@@ -14,3 +14,6 @@ Spond's scope is restricted to algorithms that align different conceptual system
 ## Pull Requests
 
 Please send in fixes and feature additions through Pull Requests.
+
+## Branching
+This projects follows the [git-flow](https://nvie.com/posts/a-successful-git-branching-model/) branching model (also see <https://jeffkreeftmeijer.com/git-flow/>).
