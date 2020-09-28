@@ -41,4 +41,3 @@ def preprocess_embedding(z):
     z_norm /= max_val
     z_norm /= 2
     return z_norm
-    

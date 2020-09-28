@@ -212,4 +212,3 @@ class Aligner:
 
                 if acc_f1 > .95 and acc_g1 > .95:
                     break
-                
