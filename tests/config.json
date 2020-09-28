@@ -1,0 +1,9 @@
+{
+    "n_restart": 100,
+    "max_epoch": 30,
+    "hidden_size": 100,
+    "gmm_scale": 0.1,
+    "loss_set_scale": 1.0,
+    "loss_cycle_scale": 2.0,
+    "loss_sup_scale": 5.0
+}
