@@ -91,3 +91,4 @@ if __name__ == "__main__":
         loss_cycle_scale=config['loss_cycle_scale'],
         loss_sup_scale=config['loss_sup_scale']
     )
+    

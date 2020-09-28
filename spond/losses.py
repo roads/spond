@@ -55,5 +55,3 @@ def set_loss_func(fx, gmm_y_samples, gmm_scale):
     # Negative log-likelihood
     neg_ll = - torch.mean(gmm_fx.log_prob(gmm_y_samples).to(DEVICE), axis=0)
     return neg_ll
-
-

@@ -49,3 +49,4 @@ def mapping_accuracy(f_x, y):
     acc_5 = np.mean(is_correct_5)
     acc_1 = np.mean(is_correct_1)
     return acc_1, acc_5, acc_10, acc_half
+    

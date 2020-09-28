@@ -39,3 +39,4 @@ def load_noisy_gaussian(n_concept, noise=0, n_dim=2, seed=7849):
     noise = noise * np.random.randn(n_concept, n_dim)
     z_1 = z_0 + noise
     return z_0, z_1
+    
