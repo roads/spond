@@ -13,4 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Utility module."""
+"""Miscellaneous utility module."""
+
+import json
+import numpy as np
+from sklearn.mixture import GaussianMixture
+
+def parse_config(config_path: str) -> dict:
+    """
+    Parse training config.
+
+    Parse configuration for training from a json file
+    """
+    with open(config_path) as r:
+        config = json.load(r)
+    return config
+
+
+def preprocess_embedding(z):
+    """Pre-process embedding."""
+    # Normalize coordinate system.
+    gmm = GaussianMixture(n_components=1, covariance_type='spherical')
+    gmm.fit(z)
+    mu = gmm.means_[0]
+    z_norm = z - mu
+    max_val = np.max(np.abs(z_norm))
+    z_norm /= max_val
+    z_norm /= 2
+    return z_norm
