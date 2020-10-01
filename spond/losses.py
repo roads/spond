@@ -2,28 +2,7 @@
 import torch
 import torch.distributions as D
 
-"""Losses module.
-​
-Functions:
-    cycle_loss: Calculate cycle consistency loss for a system and its 
-    mapping back to itself through a model (l1 norm of distances 
-    between points)
-
-    create_gmm: Generate probability distribution using gaussian 
-    kernels on a system of points
-
-    negloglik: Calculate loglikelihood of drawing a sample from a 
-    probability distribution
-
-    mapping_accuracy: Accuracy of a mapping vs ground truth
-
-    pairwise_distance: Calculate pairwise distances between points in 
-    two systems
-
-    np_alignment_corr: Calculate alignment correlation between two 
-    systems with mapping in both directions (A->B and B->A)
-
-"""
+"""Losses module."""
 
 def _euclidean_distance(x, y):
     """L2 distance."""
