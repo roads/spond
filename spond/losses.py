@@ -36,7 +36,6 @@ def sup_loss_func(x_sup, f_y_sup, loss_sup_scale):
     return loss
 
 
-# FLAG DIFFERENCES FROM KENGO VERSION: mine allows for cycle loss in one system only
 def cycle_loss_flex(X, gf_x, Y=None, fg_y=None, loss_cycle_scale=1):
     """
     Calculate cycle consistency loss for a system and its mapping back
@@ -64,7 +63,6 @@ def cycle_loss_flex(X, gf_x, Y=None, fg_y=None, loss_cycle_scale=1):
     return loss
 
 
-# FLAG DIFFERENCES FROM KENGO VERSION: have separate gmm formation function and nll function
 def create_gmm(system, gmm_scale=0.05):
 
     """
