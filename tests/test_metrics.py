@@ -15,10 +15,8 @@
 # ============================================================================
 """Test metrics module."""
 
-import pytest
-
-import spond
 import numpy as np
+import pytest
 import spond.metrics
 
 
