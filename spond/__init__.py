@@ -17,6 +17,7 @@
 
 Modules:
     inputs
+    metrics
     models
     evaluate
 
@@ -24,4 +25,5 @@ Modules:
 
 import spond.inputs
 import spond.models
+import spond.metrics
 import spond.evaluate
