@@ -19,6 +19,55 @@ import pytest
 
 import spond
 import numpy as np
+import spond.metrics
+
+
+def test_mapping_accuracy():
+    """Test mapping accuracy."""
+    f_x = np.array([
+        [0.35935493, 0.52762284],
+        [0.28900772, 0.69764302],
+        [0.09705504, 0.85132928],
+        [0.14825254, 0.12129033],
+        [0.45746927, 0.73672528],
+        [0.98917185, 0.09074136],
+        [0.98320845, 0.82869022],
+        [0.70395342, 0.78155301],
+        [0.22525633, 0.7187863 ],
+        [0.22525633, 0.77559237]
+    ])
+    
+    y = np.array([
+        [0.35935493, 0.52762284],
+        [0.28900772, 0.69764302],
+        [0.09705504, 0.85132928],
+        [0.14825254, 0.12129033],
+        [0.45746927, 0.73672528],
+        [0.98917185, 0.09074136],
+        [0.98320845, 0.82869022],
+        [0.70395342, 0.78155301],
+        [0.22525633, 0.77559237],
+        [0.22525633, 0.7187863 ]
+    ])
+    top1_desired = .8
+    top5_desired = 1.
+    
+    top1a = spond.metrics.mapping_accuracy(f_x, y)
+    assert len(top1a) == 1
+    assert top1a[0] == top1_desired
+
+    top1b = spond.metrics.mapping_accuracy(f_x, y, n=[1])
+    assert len(top1b) == 1
+    assert top1b[0] == top1_desired
+
+    top5 = spond.metrics.mapping_accuracy(f_x, y, n=[5])
+    assert len(top5) == 1
+    assert top5[0] == top5_desired
+
+    top_n = spond.metrics.mapping_accuracy(f_x, y, n=[1, 5])
+    assert len(top_n) == 2
+    assert top_n[0] == top1_desired
+    assert top_n[1] == top5_desired
 
 
 def test_matrix_comparison():
