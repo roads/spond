@@ -16,16 +16,11 @@
 """Evaluation metrics.
 
 Functions:
-    mapping_accuracy:
-    alignment_score: Compute the alignment score betweeen two sets of
-        points.
-    pdist_triu: Compute the upper-triangular pairwise distances
-        between a set of points.
+    mapping_accuracy: Compute the top-n mapping accuracy between two
+        systems.
 
 """
 
-import numpy as np
-from scipy.stats import spearmanr
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
@@ -70,61 +65,3 @@ def mapping_accuracy(f_x, y, n=[1]):
         accuracy.append(np.mean(np.sum(locs[:, 0:top_i], axis=1)))
 
     return accuracy
-
-
-def alignment_score(x, y, f=None):
-    """Compute the alignment score between two set of points.
-
-    Arguments:
-        x: A set of points.
-            shape=(n,d)
-        y: A set of points.
-            shape=(n,d)
-        f (optional): A kernel function that computes the similarity
-            or dissimilarity between two vectors. The function must
-            accept two matrices with shape=(m,d).
-    
-    Returns:
-        corr: The alignment score between the two sets of points.
-
-    """
-    n = x.shape[0]
-    if y.shape[0] != n:
-        raise ValueError(
-            "The argument `x` and `y` must have the same number of rows."
-        )
-
-    # Determine upper triangular pairwise distance.
-    d_x = pdist_triu(x)
-    d_y = pdist_triu(y)
-
-    corr, pval = spearmanr(d_x, d_y)
-    return corr
-
-
-def pdist_triu(x, f=None):
-    """Pairwise distance.
-    
-    Arguments:
-        x: A set of points.
-            shape=(n,d)
-        f (optional): A kernel function that computes the similarity
-            or dissimilarity between two vectors. The function must
-            accept two matrices with shape=(m,d).
-    
-    Returns:
-        Upper triangular pairwise distances in "unrolled" form.
-
-    """
-    n = x.shape[0]
-    
-    if f is None:
-        # Use Euclidean distance.
-        def f(x, y):
-            return np.sqrt(np.sum((x - y)**2, axis=1))
-
-    # Determine indices of upper triangular matrix (not including
-    # diagonal elements).
-    idx_upper = np.triu_indices(n, 1)
-
-    return f(x[idx_upper[0]], x[idx_upper[1]])
