@@ -13,30 +13,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Utility module."""
+"""Test utils module."""
 
 import numpy as np
+import pytest
+import spond.utils
 
 
-def preprocess_embedding(z):
-    """Pre-process embedding.
-    
-    Center and scale embedding to be between -.5, and .5.
+def test_preprocess_embedding():
+    """Test preprocess embedding."""
+    z = np.array([
+        [0.35935493, 0.52762284],
+        [0.28900772, 0.69764302],
+        [0.09705504, 0.85132928],
+        [0.14825254, 0.12129033],
+        [0.45746927, 0.73672528],
+        [0.98917185, 0.09074136],
+        [0.98320845, 0.82869022],
+        [0.70395342, 0.78155301],
+        [0.22525633, 0.7187863 ],
+        [0.22525633, 0.77559237]
+    ])
 
-    Arguments:
-        z: A 2D NumPy array.
-            shape=(n_concept, n_dim)
-    
-    Returns:
-        z_p: A pre-processed embedding.
+    z_p = spond.utils.preprocess_embedding(z)
+    z_p_mu = np.mean(z_p, axis=0)
+    np.testing.assert_almost_equal(z_p_mu, np.zeros([2]))
 
-    """
-    # Center embedding.
-    z_p = z - np.mean(z, axis=0, keepdims=True)
-
-    # Scale embedding.
-    max_val = np.max(np.abs(z_p))
-    z_p /= max_val
-    z_p /= 2
-    
-    return z_p
+    max_abs_val = np.max(np.abs(z_p))
+    assert max_abs_val <= .5
