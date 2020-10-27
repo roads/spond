@@ -18,7 +18,7 @@ setuptools.setup(
     license='Apache Licence 2.0',
     packages=['spond'],
     python_requires='>=3.8, <3.9',
-    install_requires=['torch', 'torchvision', 'numpy'],
+    install_requires=['torch', 'torchvision', 'numpy', 'scikit-learn', 'scipy'],
     include_package_data=True,
     url='https://github.com/roads/spond',
     download_url=''
