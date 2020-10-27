@@ -17,44 +17,14 @@
 import numpy as np
 
 import torch
-import torch.nn as nn
 import torch.optim as optim
 
 from torch.utils.data import Dataset, DataLoader
 
-from .losses import cycle_loss_func, sup_loss_func, set_loss_func
-from .metrics import mapping_accuracy
+from spond.losses import cycle_loss_func, sup_loss_func, set_loss_func
+from spond.metrics import mapping_accuracy
 
 # TODO: make mapping function customizable
-class MLP(nn.Module):
-    """Multilayer Perceptron to map from one system to another."""
-
-    def __init__(self, input_size, hidden_size):
-        """Initialize."""
-        super(MLP, self).__init__()
-        self._input_size = input_size
-        self._hidden_size  = hidden_size
-
-        self.fc1 = nn.Linear(self._input_size, self._hidden_size)
-        self.fc2 = nn.Linear(self._hidden_size, self._hidden_size)
-        self.fc3 = nn.Linear(self._hidden_size, self._hidden_size)
-        self.fc4 = nn.Linear(self._hidden_size, self._input_size)
-
-        # Glorot uniform initialization
-        nn.init.xavier_uniform_(self.fc1.weight)
-        nn.init.xavier_uniform_(self.fc2.weight)
-        nn.init.xavier_uniform_(self.fc3.weight)
-        nn.init.xavier_uniform_(self.fc4.weight)
-
-    def forward(self, x):
-        """Forward."""
-        x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
-        x = torch.tanh(self.fc3(x))
-        out = torch.tanh(self.fc4(x))
-        return out
-
-
 class AlignmentDataset(Dataset):
     """PyTorch dataset module to manage batch processing for cycle loss."""
 
