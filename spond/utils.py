@@ -42,14 +42,3 @@ def preprocess_embedding(z):
     z_p /= 2
     
     return z_p
-
-
-def parse_config(config_path: str) -> dict:
-    """
-    Parse training config.
-
-    Parse configuration for training from a json file
-    """
-    with open(config_path) as r:
-        config = json.load(r)
-    return config

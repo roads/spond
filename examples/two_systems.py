@@ -26,7 +26,7 @@ import numpy as np
 from spond.models import Aligner
 from spond.datasets import load_noisy_gaussian
 from spond.metrics import mapping_accuracy
-from spond.utils import parse_config, preprocess_embedding
+from spond.utils import preprocess_embedding
 
 
 if __name__ == "__main__":
