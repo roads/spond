@@ -13,7 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Runner. Demo with 2D Synthetic Data with/without semi-supervision."""
+"""Example that uses 2D synthetic data.
+
+Can optionally use semi-supervision.
+
+"""
 import argparse
 import scipy.stats
 import numpy as np
@@ -26,8 +30,12 @@ from spond.utils import parse_config, preprocess_embedding
 
 if __name__ == "__main__":
     # Parse arguments
-    parser = argparse.ArgumentParser(description='Unsupervised alignment of conceptual systems')
-    parser.add_argument('--log', help='log to record learning curve', default=None)
+    parser = argparse.ArgumentParser(
+        description='Unsupervised alignment of conceptual systems'
+    )
+    parser.add_argument(
+        '--log', help='log to record learning curve', default=None
+    )
 
     args = parser.parse_args()
 
@@ -36,13 +44,15 @@ if __name__ == "__main__":
     noise = 0.01
     n_dim = 2
 
-    z_0, z_1 = load_noisy_gaussian(n_concept=n_concept, noise=noise, n_dim=n_dim)
+    z_0, z_1 = load_noisy_gaussian(
+        n_concept=n_concept, noise=noise, n_dim=n_dim
+    )
     
     z_0 = preprocess_embedding(z_0)
     z_1 = preprocess_embedding(z_1)
 
     template = 'Ceiling Accuracy 1: {0:.2f} 5: {1:.2f} 10: {2:.2f} Half: {3:.2f}\n'
-    acc_1, acc_5, acc_10, acc_half = mapping_accuracy(z_0, z_1)
+    acc_1, acc_5, acc_10, acc_half = mapping_accuracy(z_0, z_1, n=[1, 5, 10, 100])
     print(template.format(acc_1, acc_5, acc_10, acc_half))
     
     # Add random rotation to the second embedding.
