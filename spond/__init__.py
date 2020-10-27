@@ -19,10 +19,9 @@ Modules:
     inputs
     metrics
     models
-    evaluate
 
 """
 
 import spond.inputs
-import spond.models
 import spond.metrics
+import spond.models
