@@ -13,9 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Example that uses 2D synthetic data.
+"""Example that performs 2-system alignment.
 
-Can optionally use semi-supervision.
+This example uses synthetic data and can optionally be trained in a
+semi-supervised way.
 
 """
 import argparse
