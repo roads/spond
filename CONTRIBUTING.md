@@ -17,3 +17,6 @@ Please send in fixes and feature additions through Pull Requests.
 
 ## Branching
 This projects follows the [git-flow](https://nvie.com/posts/a-successful-git-branching-model/) branching model (also see <https://jeffkreeftmeijer.com/git-flow/>).
+
+## Commits
+Please use our commit template (.gitmessage.txt). You can set this as your commit template using the command `git config commit.template ~/.gitmessage.txt`.
