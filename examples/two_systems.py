@@ -51,9 +51,11 @@ if __name__ == "__main__":
     z_0 = preprocess_embedding(z_0)
     z_1 = preprocess_embedding(z_1)
 
-    template = 'Ceiling Accuracy 1: {0:.2f} 5: {1:.2f} 10: {2:.2f} Half: {3:.2f}\n'
-    acc_1, acc_5, acc_10, acc_half = mapping_accuracy(z_0, z_1, n=[1, 5, 10, 100])
-    print(template.format(acc_1, acc_5, acc_10, acc_half))
+    template = 'Ceiling Accuracy 1: {0:.2f} 5: {1:.2f} 10: {2:.2f}\n'
+    acc_1, acc_5, acc_10 = mapping_accuracy(
+        z_0, z_1, n=[1, 5, 10]
+    )
+    print(template.format(acc_1, acc_5, acc_10))
     
     # Add random rotation to the second embedding.
     np.random.seed(42)

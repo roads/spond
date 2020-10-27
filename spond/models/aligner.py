@@ -63,7 +63,7 @@ class Aligner:
         """Main training routine."""
         # logging template
         template_loss = 'Restart {0} Loss | total: {1:.5g} | cycle: {2:.3g} | f_set: {3:.3g} | g_set: {4:.3g} | f_sup: {5:.3g} | g_sup: {6:.3g}'
-        template_acc = '{0} Accuracy | 1: {1:.2f} | 5: {2:.2f} | 10: {3:.2f} | half: {4:.2f}'
+        template_acc = '{0} Accuracy | 1: {1:.2f} | 5: {2:.2f} | 10: {3:.2f}'
 
         # Set up dataloader
         batch_size = 100
@@ -145,13 +145,15 @@ class Aligner:
                 optimizer.step()
 
                 if self._y_idx_map is not None:
-                    acc_f1, acc_f5, acc_f10, acc_fhalf = mapping_accuracy(
+                    acc_f1, acc_f5, acc_f10 = mapping_accuracy(
                         f_x.detach().cpu().numpy(),
-                        y[self._y_idx_map].detach().cpu().numpy()
+                        y[self._y_idx_map].detach().cpu().numpy(),
+                        n=[1, 5, 10]
                     )
-                    acc_g1, acc_g5, acc_g10, acc_ghalf = mapping_accuracy(
+                    acc_g1, acc_g5, acc_g10 = mapping_accuracy(
                         g_y[self._y_idx_map].detach().cpu().numpy(),
-                        x.detach().cpu().numpy()
+                        x.detach().cpu().numpy(),
+                        n=[1, 5, 10]
                     )
 
             # Compare against the current best loss
@@ -176,8 +178,8 @@ class Aligner:
                         sup_loss_f,
                         sup_loss_g
                       ) + 
-                      template_acc.format('\nf(x)', acc_f1, acc_f5, acc_f10, acc_fhalf) +
-                      template_acc.format('\tg(y)', acc_g1, acc_g5, acc_g10, acc_ghalf)
+                      template_acc.format('\nf(x)', acc_f1, acc_f5, acc_f10) +
+                      template_acc.format('\tg(y)', acc_g1, acc_g5, acc_g10)
                       )
 
                 if acc_f1 > .95 and acc_g1 > .95:
