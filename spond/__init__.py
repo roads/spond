@@ -16,12 +16,14 @@
 """Top-level package initialization file.
 
 Modules:
+    datasets
     inputs
     metrics
     models
 
 """
 
+import spond.datasets
 import spond.inputs
 import spond.metrics
 import spond.models
