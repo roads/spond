@@ -23,6 +23,7 @@ from torch.utils.data import Dataset, DataLoader
 
 from spond.losses import cycle_loss_func, sup_loss_func, set_loss_func
 from spond.metrics import mapping_accuracy
+from spond.models import MLP
 
 # TODO: make mapping function customizable
 class AlignmentDataset(Dataset):
