@@ -14,8 +14,10 @@
 # limitations under the License.
 # ============================================================================
 """Dataset loading module."""
+
 import torch
 import torch.distributions as D
+
 
 def _euclidean_distance(x, y):
     """L2 distance."""
