@@ -63,13 +63,13 @@ def cycle_loss_flex(X, gf_x, Y=None, fg_y=None, loss_cycle_scale=1):
     to itself through the model (l1 norm of distances between points)
 
     Args:
-     - X: Original system, tensor
-     - gf_x: Resulting system for comparison to original. Tensor with 
-     same shape as X. Assumes points correspond to those in X
-     - Y and gf_y (optional): Second system
+        X: Original system, tensor
+        gf_x: Resulting system for comparison to original. Tensor with 
+        same shape as X. Assumes points correspond to those in X
+        Y and gf_y (optional): Second system
 
-    Output:
-     - tot_loss: cycle loss per concept
+    Returns:
+        tot_loss: cycle loss per concept
     """
 
     if Y == None:
@@ -90,13 +90,13 @@ def create_gmm(system, gmm_scale=0.05):
     Generate probability distribution using gaussian kernels on a
     system of points
 
-    Args:
-     - system: set of points from which gmm will be produced
-     - batches: bool indicating if system shape includes batch dimension
-     - kernel_size: stdev of kernel placed on each point to form gmm
+    Arguments:
+        system: set of points from which gmm will be produced
+        batches: bool indicating if system shape includes batch dimension
+        kernel_size: stdev of kernel placed on each point to form gmm
 
-    Output: 
-     - gmm_x: gmm probability distribution
+    Returns: 
+        gmm_x: gmm probability distribution
     """
 
     system = torch.squeeze(system)
@@ -113,16 +113,18 @@ def create_gmm(system, gmm_scale=0.05):
     return gmm_X
 
 
-def negloglik(dist, sample, dist_loss_scale):
+def negloglik(dist, sample, dist_loss_scale=1):
     """
     Calculate loglikelihood of drawing a sample from a probability
     distribution
 
-    Args:
-     - dist: probability distribution (e.g, output of create_gmm)
+    Arguments:
+        dist: probability distribution (e.g, output of create_gmm)
+        sample: sample for which the negloglik is being calculated
+        dist_loss_scale: scaling factor for distribution loss
     """
     result = -torch.mean(dist.log_prob(sample.double()), axis = 0)
-    return result
+    return result * dist_loss_scale
 
 
 
