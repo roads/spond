@@ -13,9 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Datasets module."""
+"""A set of results.
+
+classes:
+    Results: A set of results.
+
+"""
 
 from spond.databases.schema.base import Schema
-from spond.databases.schema.strategy import Strategy
-from spond.databases.schema.task import Task
-from spond.databases.schema.results import Results
+
+
+class Results(Schema):
+    """Object to keep track of a set of results.
+
+    The resulting dictionary has the following keys and semantics:
+        results: The results.
+
+    """
+
+    def __init__(self, results={}):
+        """Initialize.
+
+        Arguments:
+            results: A dictionary of results.
+
+        """
+        self.schema_name = 'results'
+        self.update(results)
