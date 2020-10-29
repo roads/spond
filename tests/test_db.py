@@ -98,7 +98,6 @@ def test_result_init():
 def test_insert(tmpdir):
     """Test benchmark record management."""
     db = TinyDB(tmpdir.join('db.json'))
-    # db = TinyDB('/Users/brett/Desktop/db.json')  # TODO
 
     # Create Strategy.
     strat_id = 0
@@ -139,7 +138,6 @@ def test_insert(tmpdir):
 def test_upsert(tmpdir):
     """Test upsert."""
     db = TinyDB(tmpdir.join('db.json'))
-    # db = TinyDB('/Users/brett/Desktop/db.json')  # TODO
 
     # Create Strategy.
     strat_id = 0
