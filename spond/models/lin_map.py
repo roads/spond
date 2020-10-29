@@ -13,7 +13,33 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Metrics module."""
 
-from spond.metrics.alignment_score import alignment_score
-from spond.metrics.mapping_accuracy import mapping_accuracy
+"""Lin_map
+Classes:
+    Lin_map: linear mapping function
+"""
+
+import torch
+import torch.nn as nn
+
+class Lin_map(nn.Module):
+    """
+    Linear mapping from one space to another
+        Parameters:
+            n_dim_in: dimensionality of input
+            n_dim_out: dimensionality of output
+        
+    """
+
+    def __init__(self, n_dim_in, n_dim_out):
+        super(Lin_map, self).__init__()
+        
+        self.fc1 = nn.Linear(n_dim_in, n_dim_out)
+
+        # Initialise with Glorot uniform
+        nn.init.xavier_uniform_(self.fc1.weight)
+
+    def forward(self, x):
+        """Feed-forward pass."""
+        y = self.fc1(x)
+        return y

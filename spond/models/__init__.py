@@ -18,3 +18,5 @@
 from spond.models.mlp import MLP
 from spond.models.aligner import AlignmentDataset
 from spond.models.aligner import Aligner
+from spond.models.lin_map import Lin_map
+from spond.models.nsys_aligner import nsys_Aligner
