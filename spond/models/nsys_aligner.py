@@ -25,13 +25,14 @@ import torch.nn.functional as F
 import spond.utils as utils
 import spond.datasets as datasets
 import spond.losses as losses
-import spond.models as models 
+from spond.models import MLP, Lin_map 
 import spond.metrics as metrics
 
 # Alignment class
 class nsys_Aligner:
 
-    def __init__(self, data_list, idx_list, map_type, latent=False):
+    def __init__(self, data_list, idx_list, map_type, latent=False, 
+                sup_idx_list=None):
         """ 
         Arguments:
             -data_list: list of point shuffled systems (tensors)
@@ -46,6 +47,12 @@ class nsys_Aligner:
         self._n_concept = data_list[0].shape[0]
         self._n_dim = data_list[0].shape[1]
         self.latent = latent
+
+        if sup_idx_list == None:
+            self.sup_idx_list = [None] * self._n_sys
+        else:
+            self.sup_idx_list = sup_idx_list
+
 
         if latent == False:
             self._n_mappings = (self._n_sys) * (self._n_sys - 1)
@@ -75,7 +82,7 @@ class nsys_Aligner:
 
         if self.map_type == "MLP":
             return (
-                [MLP(self._n_dim, hidden_size, self._n_dim).float() 
+                [MLP(self._n_dim, hidden_size).float() 
                 for x in range(self._n_mappings)
                 ])
 
@@ -189,25 +196,26 @@ class nsys_Aligner:
     def train(self, n_restart=100, max_epoch=30, hidden_size=100, 
     gmm_scale=0.1, loss_set_scale=1, loss_cycle_scale=10, verbose=1,
     n_batches=1, optimizer_type="Adam", learning_rate=0.1,
-    learn_cross_restart=[(0.2, 0.2), (0.7, 0.9), (1, 1)]):
+    learn_cross_restart=[(0.2, 0.2), (0.7, 0.9), (1, 1)], 
+    loss_sup_scale=0):
 
         if self.latent == True:
             self._train_latent(n_restart, max_epoch, hidden_size, 
                 gmm_scale, loss_set_scale, loss_cycle_scale, verbose,
                 n_batches, optimizer_type, learning_rate,
-                learn_cross_restart)
+                learn_cross_restart, loss_sup_scale)
 
         if self.latent == False:
             self._train_ind(n_restart, max_epoch, hidden_size, 
                 gmm_scale, loss_set_scale, loss_cycle_scale, verbose,
                 n_batches, optimizer_type, learning_rate,
-                learn_cross_restart)
+                learn_cross_restart, loss_sup_scale)
 
 
     def _train_ind(self, n_restart, max_epoch, hidden_size, 
     gmm_scale, loss_set_scale, loss_cycle_scale, verbose,
     n_batches, optimizer_type, learning_rate,
-    learn_cross_restart):
+    learn_cross_restart, loss_sup_scale):
 
         """
         Training procedure to optimise cycle loss and gmm distribution 
@@ -216,9 +224,7 @@ class nsys_Aligner:
         learn_cross_restart: a list of tuples specifying the restart
         learning schedule, where tup[0] is probability of best model 
         being used prior to restart tup[1]*n_restarts
-        TODO:
-            - Make latent space size flexible
-            -And for adversarial vs. distribution loss
+      
         """
 
         # Throw error if this method is used for latent initialisation
@@ -319,7 +325,7 @@ class nsys_Aligner:
                 tot_dist_loss = 0
 
                 # Generate accuracy tracker
-                map_curr_accuracy = np.full((self._n_sys, 4), 0, dtype=float)
+                map_curr_accuracy = np.full((self._n_sys, 3), 0, dtype=float)
 
                 # Loop through input spaces
                 for i, data in enumerate(self.data_list):
@@ -338,6 +344,25 @@ class nsys_Aligner:
                         dist_loss.backward(retain_graph=True)
                         optimizer.step()
                         tot_dist_loss += dist_loss.detach().numpy()/self._n_mappings
+
+                        o_dat_list = [dat for j, dat in enumerate(self.data_list) if j!=i]
+                        # Semi-supervision
+                        if (self.sup_idx_list[i] is not None) and (
+                                self.sup_idx_list[j] is not None
+                            ):
+                            # Zero gradients for optimizer  
+                            optimizer.zero_grad()
+
+                            datj = o_dat_list[j]
+                            datj.requires_grad_()
+                            itoj_sup = map_out[j].forward(data[self.sup_idx_list[i]])
+                            sup_i = losses.sup_loss_func(
+                                itoj_sup, datj[self.sup_idx_list[j]], loss_sup_scale
+                                )
+
+                            sup_i.backward()
+                            optimizer.step()
+
 
                         # Update best_loss and best_model
                         flat_idx = (self._n_sys - 1) * i + j
@@ -373,7 +398,7 @@ class nsys_Aligner:
     def _train_latent(self, n_restart, max_epoch, hidden_size, 
     gmm_scale, loss_set_scale, loss_cycle_scale, verbose,
     n_batches, optimizer_type, learning_rate,
-    learn_cross_restart):
+    learn_cross_restart, loss_sup_scale):
 
         # Error if this method is used for non-latent initialisation
         if self.latent != True:
@@ -461,7 +486,7 @@ class nsys_Aligner:
                 tot_dist_loss = 0
 
                 # Generate accuracy tracker
-                map_curr_accuracy = np.full((self._n_sys, 4), 0, dtype=float)
+                map_curr_accuracy = np.full((self._n_sys, 3), 0, dtype=float)
 
                 # Loop through pairs of input spaces
                 for i, data_i in enumerate(self.data_list):

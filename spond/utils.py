@@ -75,30 +75,12 @@ def get_output(restart, epoch, batch_loss, set_loss, acclist, verbose=0):
     """
     Get output template and format with current loss
     """
-        
-    loss_list = []
-    for loss in [batch_loss, set_loss]:
-        l = [np.round(x, 3) for x in loss]
-        loss_list.append(l)
-
-    loss_list = [y for x in loss_list for y in x]
-
-    double_form = "disc: {}, gen: {}"
-    if len(batch_loss) > 1: 
-        batch_loss = double_form.format(loss_list[0], loss_list[1])
-    else:
-        batch_loss = loss_list[0] 
-
-    if len(set_loss) > 1:
-        set_loss = double_form.format(loss_list[-2], loss_list[-1])
-    else:
-        set_loss = loss_list[-1]
 
     if verbose == 0:
         return None
     
     elif verbose == 1:
-        template_loss = 'Restart {0}, epoch {1}: Loss | batch: {2} | set: {3}'
+        template_loss = 'Restart {0}, epoch {1}: Loss | batch: {2:.2f} | set: {3:.2f}'
         loss_output = template_loss.format(
                                         restart+1, epoch,
                                         batch_loss,

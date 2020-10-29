@@ -16,3 +16,4 @@
 """Datasets module."""
 
 from spond.datasets.synthetic import load_noisy_gaussian
+from spond.datasets.synthetic import create_n_systems

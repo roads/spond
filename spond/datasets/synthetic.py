@@ -15,6 +15,7 @@
 # ============================================================================
 """Predefined dataset module."""
 import numpy as np
+import scipy as sp
 import torch
 
 def load_noisy_gaussian(n_concept, noise=0, n_dim=2, seed=7849):

@@ -15,59 +15,70 @@
 # ============================================================================
 """Example that performs N-system alignment."""
 
+import random
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-import utils
-import datasets
-import losses
-import models 
+import spond.utils as utils
+from spond.datasets import create_n_systems
+import spond.losses as losses
+import spond.models as models 
 
 
 ## Embedding parameters
-n_systems = 4
-n_dim = 3
+n_systems = 2
+n_dim = 2
 n_concepts = 200
-n_epicentres = 5 
-epicentre_range = 5 
-gaussian_sigma = 0.8 
-noise = 0.1 
+n_sup = 10
+n_epicentres = 1
+epicentre_range = 1
+gaussian_sigma = 1
+noise = 0.01
 
 # Training parameters
-restarts = 50
-max_epoch = 30
-n_batch = 10
-cycle_scale = 100 # scale for cycle loss
+restarts = 100
+max_epoch = 60
+n_batch = 1
+cycle_scale = 2e3 # scale for cycle loss
+loss_sup_scale = 5e3
 n_batch = 10 # Batches for cycle loss training each epoch
 optimizer = "Adam"
-learning_rate = 0.1
-gmm_scale = 0.1
+learning_rate = 1e-1
+gmm_scale = 0.01
 restart_schedule = [(0.2, 0.2), # Take best model with p=0.2 first 20% of restarts
                     (0.7, 0.9), # Take best model with p=0.7 from 20-90% of restarts
                     (1, 1)] # Take best model with p=1 after 90% of restarts
+
 
 # Model parameters
 map_type = "Linear" # Currently one of ("Linear", "MLP")
 n_hidden = max(n_dim,10)
 
 # Generate synthetic embeddings
-systems, noisy_systems = datasets.create_n_systems(
-                                            n_systems=n_systems,
-                                            n_epicentres=n_epicentres, 
-                                            epicentre_range=epicentre_range, 
-                                            n_dim=n_dim, 
-                                            num_concepts=n_concepts, 
-                                            sigma=gaussian_sigma, 
-                                            noise_size=noise,  
-                                            return_noisy=True, 
-                                            rotation = True
-                                            )
+systems, noisy_systems = create_n_systems(
+                                    n_systems=n_systems,
+                                    n_epicentres=n_epicentres, 
+                                    epicentre_range=epicentre_range, 
+                                    n_dim=n_dim, 
+                                    num_concepts=n_concepts, 
+                                    sigma=gaussian_sigma, 
+                                    noise_size=noise,  
+                                    return_noisy=True, 
+                                    rotation = True
+                                    )
 
 
 data_list = []
 idx_list = []
+
+if n_sup != 0:
+    sup_idx_list = []
+    sup = random.sample(range(n_concepts), n_sup)
+else:
+    sup_idx_list = None
 
 for i in range(n_systems):
 
@@ -83,9 +94,13 @@ for i in range(n_systems):
     data_list.append(sys_shuff)
     idx_list.append(torch.argsort(shuff_idx).numpy())
 
+    if n_sup != 0:
+        sup_idx_list.append(torch.argsort(shuff_idx).numpy()[sup])
+
 
 # Instantiate aligner class
-test = models.nsys_Aligner(data_list, idx_list, map_type, latent=True)
+test = models.nsys_Aligner(data_list, idx_list, map_type, latent=True,
+                            sup_idx_list=sup_idx_list)
 
 # Train
 test.train(restarts, max_epoch, n_hidden, 
