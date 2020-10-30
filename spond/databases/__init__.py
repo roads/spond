@@ -13,19 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Top-level package initialization file.
+"""Datasets module."""
 
-Modules:
-    databases
-    datasets
-    inputs
-    metrics
-    models
-
-"""
-
-import spond.databases
-import spond.datasets
-import spond.inputs
-import spond.metrics
-import spond.models
+from spond.databases.schema.base import Schema
+from spond.databases.schema.strategy import Strategy
+from spond.databases.schema.task import Task
+from spond.databases.schema.results import Results
