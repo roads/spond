@@ -16,16 +16,12 @@
 """Top-level package initialization file.
 
 Modules:
-    databases
-    datasets
     inputs
-    metrics
     models
+    evaluate
 
 """
 
-import spond.databases
-import spond.datasets
 import spond.inputs
-import spond.metrics
 import spond.models
+import spond.evaluate
