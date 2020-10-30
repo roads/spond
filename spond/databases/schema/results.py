@@ -13,19 +13,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Top-level package initialization file.
+"""A set of results.
 
-Modules:
-    databases
-    datasets
-    inputs
-    metrics
-    models
+classes:
+    Results: A set of results.
 
 """
 
-import spond.databases
-import spond.datasets
-import spond.inputs
-import spond.metrics
-import spond.models
+from spond.databases.schema.base import Schema
+
+
+class Results(Schema):
+    """Object to keep track of a set of results.
+
+    The resulting dictionary has the following keys and semantics:
+        results: The results.
+
+    """
+
+    def __init__(self, results={}):
+        """Initialize.
+
+        Arguments:
+            results: A dictionary of results.
+
+        """
+        self.schema_name = 'results'
+        self.update(results)
