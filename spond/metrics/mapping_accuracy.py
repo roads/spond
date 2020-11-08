@@ -41,7 +41,7 @@ def mapping_accuracy(f_x, y, n=[1]):
         n (optional): A list of integers indicating the top-n accuracy
             values that should be computed. By default, only the top-1
             accuracy will be computed.
-    
+
     Returns:
         accuracy: A list of accuracy values in the same order as
             requested by argument `n`.
