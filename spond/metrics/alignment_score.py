@@ -38,7 +38,7 @@ def alignment_score(x, y, f=None):
         f (optional): A kernel function that computes the similarity
             or dissimilarity between two vectors. The function must
             accept two matrices with shape=(m,d).
-    
+
     Returns:
         corr: The alignment score between the two sets of points.
 
@@ -59,20 +59,20 @@ def alignment_score(x, y, f=None):
 
 def pdist_triu(x, f=None):
     """Pairwise distance.
-    
+
     Arguments:
         x: A set of points.
             shape=(n,d)
         f (optional): A kernel function that computes the similarity
             or dissimilarity between two vectors. The function must
             accept two matrices with shape=(m,d).
-    
+
     Returns:
         Upper triangular pairwise distances in "unrolled" form.
 
     """
     n = x.shape[0]
-    
+
     if f is None:
         # Use Euclidean distance.
         def f(x, y):

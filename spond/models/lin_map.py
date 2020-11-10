@@ -14,26 +14,25 @@
 # limitations under the License.
 # ============================================================================
 
-"""Lin_map
-Classes:
-    Lin_map: linear mapping function
-"""
+"""Linear mapping function."""
 
 import torch
 import torch.nn as nn
 
+
 class Lin_map(nn.Module):
     """
-    Linear mapping from one space to another
-        Parameters:
-            n_dim_in: dimensionality of input
-            n_dim_out: dimensionality of output
-        
+    Linear mapping from one space to another.
+
+    Parameters:
+        n_dim_in: dimensionality of input
+        n_dim_out: dimensionality of output
     """
 
     def __init__(self, n_dim_in, n_dim_out):
+        """Initialise."""
         super(Lin_map, self).__init__()
-        
+
         self.fc1 = nn.Linear(n_dim_in, n_dim_out)
 
         # Initialise with Glorot uniform

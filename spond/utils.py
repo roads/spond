@@ -24,13 +24,13 @@ import torch
 
 def preprocess_embedding(z):
     """Pre-process embedding.
-    
+
     Center and scale embedding to be between -.5, and .5.
 
     Arguments:
         z: A 2D NumPy array.
             shape=(n_concept, n_dim)
-    
+
     Returns:
         z_p: A pre-processed embedding.
 
@@ -42,17 +42,12 @@ def preprocess_embedding(z):
     max_val = np.max(np.abs(z_p))
     z_p /= max_val
     z_p /= 2
-    
+
     return z_p
 
 
 def calculate_ceiling(z_1p, z_1):
-
-    """
-    Calculate ceiling accuracy for two systems inputted in 
-    contiguous order
-    """
-    
+    """Get ceiling accuracy for two systems given in contiguous order."""
     z_1p = torch.squeeze(z_1p)
     z_1 = torch.squeeze(z_1)
     n_concept = z_1.shape[0]
@@ -69,18 +64,16 @@ def calculate_ceiling(z_1p, z_1):
 
     return compare/n_concept
 
-   
-def get_output(restart, epoch, batch_loss, set_loss, acclist, verbose=0):
-    
-    """
-    Get output template and format with current loss
-    """
 
+def get_output(restart, epoch, batch_loss, set_loss, acclist, verbose=0):
+    """Get output template and format with current loss."""
     if verbose == 0:
         return None
-    
+
     elif verbose == 1:
-        template_loss = 'Restart {0}, epoch {1}: Loss | batch: {2:.2f} | set: {3:.2f}'
+        template_loss = (
+            'Restart {0}, epoch {1}: Loss | batch: {2:.2f} | set: {3:.2f}'
+            )
         loss_output = template_loss.format(
                                         restart+1, epoch,
                                         batch_loss,
@@ -88,20 +81,17 @@ def get_output(restart, epoch, batch_loss, set_loss, acclist, verbose=0):
                                         )
         template_acc = '{0} Accuracy | 1: {1:.2f} | 5: {2:.2f} | 10: {3:.2f}'
         acc_output = template_acc.format(
-                            '\nMean', 
-                            acclist[0], 
-                            acclist[1], 
+                            '\nMean',
+                            acclist[0],
+                            acclist[1],
                             acclist[2])
         return [loss_output, acc_output]
-    
-    
+
+
 def _get_optimizer(params, optimizer_type="Adam", lr=0.1):
-    """
-    Create optimizer for training of type specified by input string
-    """
+    """Create optimizer for training of type specified by input string."""
     if optimizer_type == "Adam":
         return optim.Adam(params, lr)
 
     elif optimizer_type == "SGD":
         return optim.SGD(params, lr)
-  

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""Multilayer Perceptron
+"""Multilayer Perceptron.
 
 Clases:
     MLP: Multiplayer Perceptron.
@@ -31,7 +31,7 @@ class MLP(nn.Module):
         """Initialize."""
         super(MLP, self).__init__()
         self._input_size = input_size
-        self._hidden_size  = hidden_size
+        self._hidden_size = hidden_size
 
         self.fc1 = nn.Linear(self._input_size, self._hidden_size)
         self.fc2 = nn.Linear(self._hidden_size, self._hidden_size)
@@ -51,5 +51,3 @@ class MLP(nn.Module):
         x = torch.tanh(self.fc3(x))
         out = torch.tanh(self.fc4(x))
         return out
-
-
