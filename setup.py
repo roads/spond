@@ -19,7 +19,7 @@ setuptools.setup(
     packages=['spond'],
     python_requires='>=3.8, <3.9',
     install_requires=[
-        'torch', 'torchvision', 'numpy', 'scipy', 'scikit-learn', 'tinydb'
+        'torch', 'torchvision', 'numpy', 'scipy', 'scikit-learn', 'tinydb', 'flake8', 'flake8-docstrings', 'black', 'isort'
     ],
     include_package_data=True,
     url='https://github.com/roads/spond',

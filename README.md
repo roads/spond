@@ -12,8 +12,7 @@ There is not yet a stable version (nor an official release of this library). All
 
 To install the latest development version, clone from GitHub and instal the local repo using pip.
 1. Use `git` to clone the latest version to your local machine: `git clone https://github.com/roads/spond.git`
-2. Use `pip` to install the cloned repo (using editable mode): `pip install -e /local/path/to/spond`
-By using editable mode, you can easily update your local copy by use `git pull origin master` inside your local copy of the repo. You do not have to re-install with `pip`.
+2. Use `make install` to install the cloned repo which executes `pip install -e` in editable mode. By using editable mode, you can easily update your local copy by use `git pull origin master` inside your local copy of the repo. You do not have to re-install with `pip`.
 
 The package can also be obtained by:
 * Manually downloading the latest version at https://github.com/roads/spond.git
@@ -25,6 +24,20 @@ TODO
 
 ## Modules
 TODO
+
+## Style Checks and Formatting
+To check if your code complies with `pycodestyle` (PEP 8) and `pydocstyle` (PEP 257), use
+```bash
+make flake8
+```
+To automatically reformat your code for `pycodestyle` and sort import stastements, use
+```bash
+make lint
+```
+which runs `black` for formatting and `isort` for sorting. Make sure that the dependent libraries are installed by running
+```bash
+make install
+```
 
 ## Contributers
 PI:
