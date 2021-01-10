@@ -1,3 +1,6 @@
+# all in one script for now, until we figure out what the real workflow should be
+import torch
+import numpy as np
 import time
 import subprocess
 import itertools
@@ -5,8 +8,8 @@ import scipy.sparse
 
 # Download from https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-human-imagelabels.csv
 # The file is large, so not included in source control
-#fn = "oidv6-train-annotations-human-imagelabels.csv"
-fn = "oidv6-train-annotations-bbox.csv"
+fn = "oidv6-train-annotations-human-imagelabels.csv"
+#fn = "oidv6-train-annotations-bbox.csv"
 
 # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
 labelsfn = 'oidv6-class-descriptions.csv'
@@ -61,9 +64,10 @@ def process(args):
     filename, start, end = args
     fh = open(filename, 'r')
     # convert to dictionary of keys scipy sparse matrix
-    # Keys: image index
-    # Values: set of label indices
-    imglabels = {} #scipy.sparse.dok_matrix((Nlabels, Nimages))
+    # store as dictionary with keys = tuples of image, label
+    # values = count
+    # this will be easier to convert to sparse matrix format later
+    imglabels = {}
     output = {}
     for line in itertools.islice(fh, start, end):
         vals = line.split(",")
@@ -71,19 +75,10 @@ def process(args):
         labelidx = labels[labelname]
         imgidx = images[imgname]
         confidence = float(confidence)
-        imglabels.setdefault(imgidx, set())
-        imglabels[imgidx].add(labelidx)
-        output.setdefault(labelidx, {})
-        # set what other labels occur with this one
-        # probably want to do something with confidence as well
-        # not store it unless it's above a certain threshold
-        exists = imglabels[imgidx]
-        for item in exists:
-            if item != labelidx:   # don't set for self
-                output[labelidx].setdefault(item, 0)
-                # at this point, instead of just adding 1,
-                # we could do other stuff with the pair
-                output[labelidx][item] += 1
+        # we may want to do something else other than increment by 1
+        # and also take into account confidence.
+        imglabels.setdefault((imgidx, labelidx), 0)
+        imglabels[imgidx, labelidx] += 1
     fh.close()
     return imglabels, output
 
@@ -93,4 +88,21 @@ start = time.time()
 imglabels, output = process((fn, 1, lines))
 end = time.time()
 total = end-start
+
+# Rows: image index
+# Columns: label index
+Nimages = len(images)
+Nlabels = len(labels)
+
+# convert to scipy.sparse.coo_matrix
+# coo_matrix needs: array of data, (array of rows, array of columns)
+sorted_keys = sorted(imglabels.keys())
+data = np.fromiter((imglabels[k] for k in sorted_keys),
+                   dtype=float, count=len(sorted_keys))
+skarr = np.array(sorted_keys).T
+imglabels_sparse = scipy.sparse.coo_matrix((data, (skarr[0], skarr[1])))
 print(f"Done processing associations in {total} s")
+i = torch.LongTensor(skarr)
+v = torch.FloatTensor(data)
+imglabels_torch = torch.sparse.FloatTensor(i, v)
+# torch.save(imglabels_torch, 'image_labels.pt')
