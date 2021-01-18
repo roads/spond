@@ -1,4 +1,5 @@
 import unittest
+import torch
 
 from spond.experimental.openimage import readfile
 
@@ -40,67 +41,85 @@ class TestProcessing(unittest.TestCase):
     def test_cooccurrence_matrix_use_confidence(self):
         imgdict = readfile.readimgs(self.imgfn, self.rootdir)
         labelsdict = readfile.readimgs(self.labelsfn, self.rootdir)
-        imglabels, coo = readfile.generate_cooccurrence(
-            self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
-            use_confidence=True
-        )
-        # 064jy_j and 05r655 co-occur twice:
-        # once each in images 497919baa5f92e69 and 0899cae1f10e5f9f
-        i, j = self.labelsdict["/m/064jy_j"], self.labelsdict["/m/05r655"]
-        self.assertEquals(coo[(i, j)], coo[(j, i)])
-        self.assertEquals(coo[(i, j)], 2)
-        # 064kdv_ and 0271t do not co-occur
-        i, j = self.labelsdict["/m/064kdv_"], self.labelsdict["/m/0271t"]
-        self.assertRaises(KeyError, lambda: coo[(i, j)])
-        # We requested to use_confidence, and
-        # 0643t and 02smb6 occur in 0899cae1f10e5f9f but with confidence 0
-        # so they should present but with co-occurrence score of 0,
-        # with every other label in 0899cae1f10e5f9f
-        zeroconf = ('/m/0643t', '/m/02smb6')
-        # all these other items are present only once in 0899cae1f10e5f9f
-        present = ['/m/0271t',
-                   '/m/0118n_9r',
-                   '/m/04dr76w',
-                   '/m/020p1v']
-        for label in present:
-            for other in present:
-                if label == other:
-                    continue
-                # each pair should have a score of 1.
-                i, j = self.labelsdict[label], self.labelsdict[other]
-                self.assertEquals(coo[(i, j)], coo[(j, i)])
-                self.assertEquals(coo[(i, j)], 1)
-            for other in zeroconf:
-                i, j = self.labelsdict[label], self.labelsdict[other]
-                self.assertEquals(coo[(i, j)], coo[(j, i)])
-                self.assertEquals(coo[(i, j)], 0)
+        for parallel in (0, 2):
+            coo = readfile.generate_cooccurrence(
+                self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
+                use_confidence=True, parallel=parallel
+            )
+            # 064jy_j and 05r655 co-occur twice:
+            # once each in images 497919baa5f92e69 and 0899cae1f10e5f9f
+            i, j = self.labelsdict["/m/064jy_j"], self.labelsdict["/m/05r655"]
+            self.assertEquals(coo[(i, j)], coo[(j, i)])
+            self.assertEquals(coo[(i, j)], 2)
+            # 064kdv_ and 0271t do not co-occur
+            i, j = self.labelsdict["/m/064kdv_"], self.labelsdict["/m/0271t"]
+            self.assertEquals(coo[(i, j)], 0)
+            # We requested to use_confidence, and
+            # 0643t and 02smb6 occur in 0899cae1f10e5f9f but with confidence 0
+            # so they should present but with co-occurrence score of 0,
+            # with every other label in 0899cae1f10e5f9f
+            zeroconf = ('/m/0643t', '/m/02smb6')
+            # all these other items are present only once in 0899cae1f10e5f9f
+            present = ['/m/0271t',
+                       '/m/0118n_9r',
+                       '/m/04dr76w',
+                       '/m/020p1v']
+            for label in present:
+                for other in present:
+                    if label == other:
+                        continue
+                    # each pair should have a score of 1.
+                    i, j = self.labelsdict[label], self.labelsdict[other]
+                    self.assertEquals(coo[(i, j)], coo[(j, i)])
+                    self.assertEquals(coo[(i, j)], 1)
+                for other in zeroconf:
+                    i, j = self.labelsdict[label], self.labelsdict[other]
+                    self.assertEquals(coo[(i, j)], coo[(j, i)])
+                    self.assertEquals(coo[(i, j)], 0)
 
     def test_cooccurrence_matrix_without_confidence(self):
         imgdict = readfile.readimgs(self.imgfn, self.rootdir)
         labelsdict = readfile.readimgs(self.labelsfn, self.rootdir)
-        imglabels, coo = readfile.generate_cooccurrence(
+        for parallel in (0, 2):
+            coo = readfile.generate_cooccurrence(
+                self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
+                use_confidence=False, parallel=parallel
+            )
+            # 064jy_j and 05r655 co-occur twice:
+            # once each in images 497919baa5f92e69 and 0899cae1f10e5f9f
+            i, j = self.labelsdict["/m/064jy_j"], self.labelsdict["/m/05r655"]
+            self.assertEquals(coo[(i, j)], coo[(j, i)])
+            self.assertEquals(coo[(i, j)], 2)
+            # 064kdv_ and 0271t do not co-occur
+            i, j = self.labelsdict["/m/064kdv_"], self.labelsdict["/m/0271t"]
+            self.assertEquals(coo[(i, j)], 0)
+            present = ['/m/0271t',
+                       '/m/0118n_9r',
+                       '/m/04dr76w',
+                       '/m/0643t',
+                       '/m/02smb6',
+                       '/m/020p1v']
+            for label in present:
+                for other in present:
+                    if label == other:
+                        continue
+                    # each pair should have a score of 1.
+                    i, j = self.labelsdict[label], self.labelsdict[other]
+                    self.assertEquals(coo[(i, j)], coo[(j, i)])
+                    self.assertEquals(coo[(i, j)], 1)
+
+    def test_parallel(self):
+        imgdict = readfile.readimgs(self.imgfn, self.rootdir)
+        labelsdict = readfile.readimgs(self.labelsfn, self.rootdir)
+        coo = readfile.generate_cooccurrence(
             self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
             use_confidence=False
-        )
-        # 064jy_j and 05r655 co-occur twice:
-        # once each in images 497919baa5f92e69 and 0899cae1f10e5f9f
-        i, j = self.labelsdict["/m/064jy_j"], self.labelsdict["/m/05r655"]
-        self.assertEquals(coo[(i, j)], coo[(j, i)])
-        self.assertEquals(coo[(i, j)], 2)
-        # 064kdv_ and 0271t do not co-occur
-        i, j = self.labelsdict["/m/064kdv_"], self.labelsdict["/m/0271t"]
-        self.assertRaises(KeyError, lambda: coo[(i, j)])
-        present = ['/m/0271t',
-                   '/m/0118n_9r',
-                   '/m/04dr76w',
-                   '/m/0643t',
-                   '/m/02smb6',
-                   '/m/020p1v']
-        for label in present:
-            for other in present:
-                if label == other:
-                    continue
-                # each pair should have a score of 1.
-                i, j = self.labelsdict[label], self.labelsdict[other]
-                self.assertEquals(coo[(i, j)], coo[(j, i)])
-                self.assertEquals(coo[(i, j)], 1)
+        ).coalesce()
+        coo_parallel = readfile.generate_cooccurrence(
+            self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
+            use_confidence=False, parallel=2
+        ).coalesce()
+
+        torch.allclose(coo.indices(), coo_parallel.indices())
+        torch.allclose(coo.values(), coo_parallel.values())
+

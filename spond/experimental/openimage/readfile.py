@@ -1,4 +1,6 @@
 # all in one script for now, until we figure out what the real workflow should be
+from copy import copy
+
 import torch
 import numpy as np
 import time
@@ -6,6 +8,8 @@ import subprocess
 import itertools
 import scipy.sparse
 import os
+import concurrent.futures
+
 
 
 def timed(f):
@@ -77,48 +81,16 @@ def readimgs(imgfn, rootdir='.'):
     return images
 
 
-@timed
-def generate_cooccurrence(filename, labels, images, use_confidence=False, rootdir='.'):
-    """
-    Parameters
-    ----------
-    filename: str
-        File containing the mapping of images to labels
-    labels: {str: int}
-        Dictionary of label names to label index, 0 indexed
-    images: {str: int}
-        Dictionary of image names to image index, 0 indexed
-    use_confidence: boolean, optional, default to False
-        If set to True, the confidence value in the file will be used when
-        calculating the co-occurrence score.
-    rootdir: str, optional, default to "."
-        If passed, will be the directory the files live in
-
-    Returns
-    -------
-    imglabels: {str: {str: float}}
-        First level keys are image index,
-        second level keys are label index,
-        second level values are score.
-        Score = 1 if confidence is not used, else 1 * confidence
-    coo: {(int, int): float}
-        Co-occurrence dictionary.
-        Keys are (image index, other image index)
-        Values are sum of scores of the pair occurring over all image pairs.
-        Reverse pairs (other image index, image index) are also stored
-        so this matrix is symmetric.
-    """
-    fh = open(os.path.join(rootdir, filename), 'r')
+def _process_file(args):
+    filename, labels, images, use_confidence, start, end = args
+    fh = open(filename, 'r')
     # keys: image index, values: {label index, score}
     imglabels = {}
     # keys: label index, values: {img_index: confidence}
     conf = {}
     # keys: [(label index, other label index)], values: score
     coo = {}
-    for idx, line in enumerate(fh):
-        # ignore line 0 which is the header
-        if not idx:
-            continue
+    for line in itertools.islice(fh, start, end):
         vals = line.split(",")
         # fields we care about for now are:
         # ImageID (position 0)
@@ -151,7 +123,79 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False, rootdi
             coo[(labelidx, otherlabel)] += used_score
             coo[(otherlabel, labelidx)] += used_score
     fh.close()
-    return imglabels, coo
+    return coo
+
+@timed
+def generate_cooccurrence(filename, labels, images, use_confidence=False,
+                          rootdir='.', parallel=0):
+    """
+    Parameters
+    ----------
+    filename: str
+        File containing the mapping of images to labels
+    labels: {str: int}
+        Dictionary of label names to label index, 0 indexed
+    images: {str: int}
+        Dictionary of image names to image index, 0 indexed
+    use_confidence: boolean, optional, default to False
+        If set to True, the confidence value in the file will be used when
+        calculating the co-occurrence score.
+    rootdir: str, optional, default to "."
+        If passed, will be the directory the files live in
+
+    Returns
+    -------
+    imglabels: {str: {str: float}}
+        First level keys are image index,
+        second level keys are label index,
+        second level values are score.
+        Score = 1 if confidence is not used, else 1 * confidence
+    coo: {(int, int): float}
+        Co-occurrence dictionary.
+        Keys are (image index, other image index)
+        Values are sum of scores of the pair occurring over all image pairs.
+        Reverse pairs (other image index, image index) are also stored
+        so this matrix is symmetric.
+    """
+    fn = os.path.join(rootdir, filename)
+    out = subprocess.run(["wc", "-l", fn], capture_output=True)
+    nlines = int(out.stdout.decode().split(" ")[0])
+    if parallel:
+        argslist = []
+        increment = nlines // parallel
+        splits = list(range(1, nlines, increment)) + [nlines]
+        newsplits = copy(splits)
+        for idx, (start, end) in enumerate(zip(splits[1:][:-1], splits[1:][1:])):
+            # need to make sure that one image does not go over the split
+            # otherwise, the counts will be wrong
+            with open(fn, 'r') as fh:
+                offset = 0
+                last_imgid = None
+                for line in itertools.islice(fh, start, end):
+                    imgid = line.split(",")[0]
+                    if not last_imgid:
+                        last_imgid = imgid
+                    if imgid != last_imgid:
+                        break
+                    offset += 1
+                # adjust the split
+                newsplits[idx+1] += offset
+
+        for start, end in zip(newsplits[:-1], newsplits[1:]):
+            argslist.append((fn, labels, images, use_confidence, start, end))
+        sparse_tensors = []
+        with concurrent.futures.ProcessPoolExecutor(max_workers=parallel) as executor:
+            for coo_ret in executor.map(_process_file, argslist):
+                sparse_tensors.append(to_pytorch(coo_ret, len(labels)))
+        tsum = sparse_tensors[0]
+        for item in sparse_tensors[1:]:
+            tsum += item
+        coo = tsum
+    else:
+        args = (fn, labels, images, use_confidence, 1, nlines)
+        coo = to_pytorch(_process_file(args), len(labels))
+    return coo
+
 
 @timed
 def to_pytorch(coo, nlabels):
@@ -176,7 +220,7 @@ def to_pytorch(coo, nlabels):
     coo_torch = torch.sparse.FloatTensor(i, v, (nlabels, nlabels))
     return coo_torch
 
-
+ 
 def to_scipy(sptensor):
     """
     Parameters
@@ -218,7 +262,6 @@ if __name__ == '__main__':
 
     labels = readlabels(labelsfn, rootdir=rootdir)
     images = readimgs(imgfn, rootdir=rootdir)
-    imglabels, coo = generate_cooccurrence(fn, labels, images, rootdir=rootdir)
-    coo_pt = to_pytorch(coo, len(labels))
+    coo_pt = generate_cooccurrence(fn, labels, images, rootdir=rootdir)
 
     torch.save(coo_pt, 'co_occurrence.pt')
