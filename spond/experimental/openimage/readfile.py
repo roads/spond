@@ -9,7 +9,7 @@ import itertools
 import scipy.sparse
 import os
 import concurrent.futures
-
+import multiprocessing
 
 
 def timed(f):
@@ -161,6 +161,7 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False,
     out = subprocess.run(["wc", "-l", fn], capture_output=True)
     nlines = int(out.stdout.decode().split(" ")[0])
     if parallel:
+        multiprocessing.set_start_method('spawn')
         argslist = []
         increment = nlines // parallel
         splits = list(range(1, nlines, increment)) + [nlines]
@@ -220,7 +221,7 @@ def to_pytorch(coo, nlabels):
     coo_torch = torch.sparse.FloatTensor(i, v, (nlabels, nlabels))
     return coo_torch
 
- 
+
 def to_scipy(sptensor):
     """
     Parameters
