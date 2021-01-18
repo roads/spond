@@ -153,8 +153,8 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False, rootdi
     fh.close()
     return imglabels, coo
 
-
-def to_pytorch(coo):
+@timed
+def to_pytorch(coo, nlabels):
     """
     Parameters
     ----------
@@ -173,7 +173,7 @@ def to_pytorch(coo):
     skarr = np.array(sorted_keys).T
     i = torch.LongTensor(skarr)
     v = torch.FloatTensor(data)
-    coo_torch = torch.sparse.FloatTensor(i, v)
+    coo_torch = torch.sparse.FloatTensor(i, v, (nlabels, nlabels))
     return coo_torch
 
 
@@ -219,6 +219,6 @@ if __name__ == '__main__':
     labels = readlabels(labelsfn, rootdir=rootdir)
     images = readimgs(imgfn, rootdir=rootdir)
     imglabels, coo = generate_cooccurrence(fn, labels, images, rootdir=rootdir)
-    coo_pt = to_pytorch(coo)
+    coo_pt = to_pytorch(coo, len(labels))
 
-    torch.save(coo_pt, 'image_labels.pt')
+    torch.save(coo_pt, 'co_occurrence.pt')
