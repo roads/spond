@@ -41,7 +41,7 @@ class TestProcessing(unittest.TestCase):
     def test_cooccurrence_matrix_use_confidence(self):
         imgdict = readfile.readimgs(self.imgfn, self.rootdir)
         labelsdict = readfile.readimgs(self.labelsfn, self.rootdir)
-        for parallel in (0, 2):
+        for parallel in (False, True):
             coo = readfile.generate_cooccurrence(
                 self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
                 use_confidence=True, parallel=parallel
@@ -80,7 +80,7 @@ class TestProcessing(unittest.TestCase):
     def test_cooccurrence_matrix_without_confidence(self):
         imgdict = readfile.readimgs(self.imgfn, self.rootdir)
         labelsdict = readfile.readimgs(self.labelsfn, self.rootdir)
-        for parallel in (0, 2):
+        for parallel in (False, True):
             coo = readfile.generate_cooccurrence(
                 self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
                 use_confidence=False, parallel=parallel
@@ -113,11 +113,11 @@ class TestProcessing(unittest.TestCase):
         labelsdict = readfile.readimgs(self.labelsfn, self.rootdir)
         coo = readfile.generate_cooccurrence(
             self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
-            use_confidence=False
+            use_confidence=False, parallel=False
         ).coalesce()
         coo_parallel = readfile.generate_cooccurrence(
             self.datafn, labelsdict, imgdict, rootdir=self.rootdir,
-            use_confidence=False, parallel=2
+            use_confidence=False, parallel=True
         ).coalesce()
 
         torch.allclose(coo.indices(), coo_parallel.indices())

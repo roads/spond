@@ -127,7 +127,7 @@ def _process_file(args):
 
 @timed
 def generate_cooccurrence(filename, labels, images, use_confidence=False,
-                          rootdir='.', parallel=0):
+                          rootdir='.', parallel=False):
     """
     Parameters
     ----------
@@ -142,6 +142,8 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False,
         calculating the co-occurrence score.
     rootdir: str, optional, default to "."
         If passed, will be the directory the files live in
+    parallel: boolean, optional, default to False
+        If set to True, the computation will happen in 2 threads
 
     Returns
     -------
@@ -163,7 +165,8 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False,
     if parallel:
         multiprocessing.set_start_method('spawn')
         argslist = []
-        increment = nlines // parallel
+        nworkers = 2
+        increment = nlines // nworkers
         splits = list(range(1, nlines, increment)) + [nlines]
         newsplits = copy(splits)
         for idx, (start, end) in enumerate(zip(splits[1:][:-1], splits[1:][1:])):
@@ -185,7 +188,7 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False,
         for start, end in zip(newsplits[:-1], newsplits[1:]):
             argslist.append((fn, labels, images, use_confidence, start, end))
         sparse_tensors = []
-        with concurrent.futures.ProcessPoolExecutor(max_workers=parallel) as executor:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=nworkers) as executor:
             for coo_ret in executor.map(_process_file, argslist):
                 sparse_tensors.append(to_pytorch(coo_ret, len(labels)))
         tsum = sparse_tensors[0]
