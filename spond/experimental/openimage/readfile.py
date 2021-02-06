@@ -43,15 +43,18 @@ def readlabels(labelsfn, rootdir='.'):
         Dictionary of labels to label index, 0 indexed
     """
     labels = {}
+    names = {}
     fn = os.path.join(rootdir, labelsfn)
     with open(fn) as fh:
-        # this file has no header so the first item is 0
         for idx, line in enumerate(fh):
+            if idx == 0:
+                continue
             # label,objectname - maybe do something else with objectname later
             # for now we only care about label
-            label = line.strip().split(",")[0]
-            labels[label] = idx
-    return labels
+            label, objectname = line.strip().split(",")[:2]
+            labels[label] = idx-1
+            names[label] = objectname
+    return labels, names
 
 
 @timed
@@ -163,7 +166,8 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False,
     out = subprocess.run(["wc", "-l", fn], capture_output=True)
     nlines = int(out.stdout.decode().split(" ")[0])
     if parallel:
-        multiprocessing.set_start_method('spawn')
+        if not os.environ.get('TESTING'):
+            multiprocessing.set_start_method('spawn')
         argslist = []
         nworkers = 2
         increment = nlines // nworkers
@@ -264,7 +268,7 @@ if __name__ == '__main__':
     imgfn = 'oidv6-train-images-with-labels-with-rotation.csv'
 
 
-    labels = readlabels(labelsfn, rootdir=rootdir)
+    labels, _ = readlabels(labelsfn, rootdir=rootdir)
     images = readimgs(imgfn, rootdir=rootdir)
     coo_pt = generate_cooccurrence(fn, labels, images, rootdir=rootdir)
 
