@@ -18,8 +18,10 @@ class GloveDataset:
         self._tokens = text.split(" ")[:n_words]
         word_counter = Counter()
         word_counter.update(self._tokens)
+        # our equivalent: labels to index
         self._word2id = {w:i for i, (w,_) in enumerate(word_counter.most_common())}
         self._id2word = {i:w for w, i in self._word2id.items()}
+        # our equivalent: total number of labels
         self._vocab_len = len(self._word2id)
 
         self._id_tokens = [self._word2id[w] for w in self._tokens]
@@ -38,9 +40,11 @@ class GloveDataset:
                 if i != j:
                     c = self._id_tokens[j]
                     cooc_mat[w][c] += 1 / abs(j-i)
-
+        # equivalent: label IDs
         self._i_idx = list()
+        # equivalent: label IDs
         self._j_idx = list()
+        # equivalent: values
         self._xij = list()
 
         #Create indexes and x values tensors
@@ -61,7 +65,7 @@ class GloveDataset:
         # get into the right shape for batch generation
         self.indices = self.cooc_mat.indices().t()
         self.values = self.cooc_mat.values()
-        self.concept_len = self.indices.shape[0]
+        self.concept_len = self.indices.max().item() + 1
 
     def get_batches(self, batch_size):
         N = self.concept_len
@@ -73,8 +77,10 @@ class GloveDataset:
             yield self.values[[batch_ids]], indices[:, 0], indices[:, 1]
 
 
-dataset = GloveDataset(os.path.join(
-    '/opt/github.com/spond/spond/experimental/openimage','co_occurrence.pt'))
+rootdir = '/opt/github.com/spond/spond/experimental/openimage'
+
+
+dataset = GloveDataset(os.path.join(rootdir, 'co_occurrence.pt'))
 
 
 EMBED_DIM = 300
@@ -103,6 +109,9 @@ class GloveModel(nn.Module):
 
 
 glove = GloveModel(dataset.concept_len, EMBED_DIM)
+
+#glove.load_state_dict(torch.load('glove.pt'))
+
 #glove.cuda()
 
 def weight_func(x, x_max, alpha):
@@ -115,14 +124,17 @@ def wmse_loss(weights, inputs, targets):
     return torch.mean(loss)#.cuda()
 
 optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
+#optimizer = optim.Adam(glove.parameters(), lr=0.001)
 
-N_EPOCHS = 100
-#BATCH_SIZE = 2048
-BATCH_SIZE = 50
+N_EPOCHS = 5000
+BATCH_SIZE = 2048
+#BATCH_SIZE = 50
 X_MAX = 100
 ALPHA = 0.75
 n_batches = int(dataset.concept_len / BATCH_SIZE)
 loss_values = list()
+min_loss = np.inf
+l = np.inf
 for e in range(1, N_EPOCHS+1):
     batch_i = 0
 
@@ -139,13 +151,54 @@ for e in range(1, N_EPOCHS+1):
         loss.backward()
 
         optimizer.step()
+        l = loss.item()
+        loss_values.append(l)
 
-        loss_values.append(loss.item())
-
-        if batch_i % 100 == 0:
-            print("Epoch: {}/{} \t Batch: {}/{} \t Loss: {}".format(e, N_EPOCHS, batch_i, n_batches, np.mean(loss_values[-20:])))
-
+        #if batch_i % 1024 == 0:
+        print("Epoch: {}/{} \t Batch: {}/{} \t Loss: {}".format(e, N_EPOCHS, batch_i, n_batches, np.mean(loss_values[-20:])))
     print("Saving model...")
-    torch.save(glove.state_dict(), "text8.pt")
+    if l < min_loss:
+        min_loss = l
+        torch.save(glove.state_dict(), "glove_min.pt")
+    torch.save(glove.state_dict(), "glove.pt")
 
 
+
+# Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
+labelsfn = 'oidv6-class-descriptions.csv'
+
+# Download from https://storage.googleapis.com/openimages/v6/oidv6-train-images-with-labels-with-rotation.csv
+imgfn = 'oidv6-train-images-with-labels-with-rotation.csv'
+
+
+import sys
+
+sys.path.append('/opt/github.com/spond/spond/experimental')
+
+from openimage.readfile import readlabels, readimgs
+
+labels, names = readlabels(labelsfn, rootdir=rootdir)
+idx_to_name = {
+    v: names[k] for k, v in labels.items()
+}
+#images = readimgs(imgfn, rootdir=rootdir)
+
+emb_i = glove.wi.weight.data.numpy()
+emb_j = glove.wj.weight.data.numpy()
+emb = emb_i + emb_j
+top_k = 300
+tsne = TSNE(metric='cosine', random_state=123)
+
+# find the most commonly co-occuring items
+# These are the items which appear the most times
+incidences = dataset.cooc_mat.to_dense().sum(axis=0)
+indexes = np.argsort(incidences)
+top_k_indices = indexes[-top_k:]
+
+#embed_tsne = tsne.fit_transform(emb[:top_k, :])
+embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
+fig, ax = plt.subplots(figsize=(14, 14))
+for idx, concept_idx in enumerate(top_k_indices):
+    plt.scatter(*embed_tsne[idx, :], color='steelblue')
+    concept = idx_to_name[concept_idx.item()]
+    plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
