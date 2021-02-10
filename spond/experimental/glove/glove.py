@@ -110,9 +110,7 @@ class GloveModel(nn.Module):
 
 glove = GloveModel(dataset.concept_len, EMBED_DIM)
 
-#glove.load_state_dict(torch.load('glove.pt'))
-
-#glove.cuda()
+TRAIN = False
 
 def weight_func(x, x_max, alpha):
     wx = (x/x_max)**alpha
@@ -123,44 +121,49 @@ def wmse_loss(weights, inputs, targets):
     loss = weights * F.mse_loss(inputs, targets, reduction='none')
     return torch.mean(loss)#.cuda()
 
-optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
-#optimizer = optim.Adam(glove.parameters(), lr=0.001)
+if TRAIN:
 
-N_EPOCHS = 5000
-BATCH_SIZE = 2048
-#BATCH_SIZE = 50
-X_MAX = 100
-ALPHA = 0.75
-n_batches = int(dataset.concept_len / BATCH_SIZE)
-loss_values = list()
-min_loss = np.inf
-l = np.inf
-for e in range(1, N_EPOCHS+1):
-    batch_i = 0
+    optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
+    #optimizer = optim.Adam(glove.parameters(), lr=0.001)
 
-    for x_ij, i_idx, j_idx in dataset.get_batches(BATCH_SIZE):
+    N_EPOCHS = 50#00
+    BATCH_SIZE = 2048
+    X_MAX = 100
+    ALPHA = 0.75
+    n_batches = int(dataset.concept_len / BATCH_SIZE)
+    loss_values = list()
+    min_loss = np.inf
+    l = np.inf
+    for e in range(1, N_EPOCHS+1):
+        batch_i = 0
 
-        batch_i += 1
+        for x_ij, i_idx, j_idx in dataset.get_batches(BATCH_SIZE):
 
-        optimizer.zero_grad()
+            batch_i += 1
 
-        outputs = glove(i_idx, j_idx)
-        weights_x = weight_func(x_ij, X_MAX, ALPHA)
-        loss = wmse_loss(weights_x, outputs, torch.log(x_ij))
+            optimizer.zero_grad()
 
-        loss.backward()
+            outputs = glove(i_idx, j_idx)
+            weights_x = weight_func(x_ij, X_MAX, ALPHA)
+            loss = wmse_loss(weights_x, outputs, torch.log(x_ij))
 
-        optimizer.step()
-        l = loss.item()
-        loss_values.append(l)
+            loss.backward()
 
-        #if batch_i % 1024 == 0:
-        print("Epoch: {}/{} \t Batch: {}/{} \t Loss: {}".format(e, N_EPOCHS, batch_i, n_batches, np.mean(loss_values[-20:])))
-    print("Saving model...")
-    if l < min_loss:
-        min_loss = l
-        torch.save(glove.state_dict(), "glove_min.pt")
-    torch.save(glove.state_dict(), "glove.pt")
+            optimizer.step()
+            l = loss.item()
+            loss_values.append(l)
+
+            #if batch_i % 1024 == 0:
+            print("Epoch: {}/{} \t Batch: {}/{} \t Loss: {}".format(e, N_EPOCHS, batch_i, n_batches, np.mean(loss_values[-20:])))
+        print("Saving model...")
+        if l < min_loss:
+            min_loss = l
+            torch.save(glove.state_dict(), "glove_min.pt")
+        torch.save(glove.state_dict(), "glove.pt")
+
+else:
+
+    glove.load_state_dict(torch.load('glove_min_5000.pt'))
 
 
 
@@ -187,7 +190,7 @@ emb_i = glove.wi.weight.data.numpy()
 emb_j = glove.wj.weight.data.numpy()
 emb = emb_i + emb_j
 top_k = 300
-tsne = TSNE(metric='cosine', random_state=123)
+tsne = TSNE(metric='cosine', n_components=2, random_state=123, init='pca', perplexity=50.0, n_iter=3000)
 
 # find the most commonly co-occuring items
 # These are the items which appear the most times
@@ -197,8 +200,15 @@ top_k_indices = indexes[-top_k:]
 
 #embed_tsne = tsne.fit_transform(emb[:top_k, :])
 embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
-fig, ax = plt.subplots(figsize=(14, 14))
+fig = plt.figure(figsize=(14, 14))
+#ax = fig.add_subplot(111, projection='3d')
+
 for idx, concept_idx in enumerate(top_k_indices):
-    plt.scatter(*embed_tsne[idx, :], color='steelblue')
+    m = embed_tsne[idx, :]
+    plt.scatter(*m, color='steelblue')
     concept = idx_to_name[concept_idx.item()]
     plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
+    #ax.text(m[0], m[1], m[2],  concept, size=20, zorder=1,
+    #        color='k')
+
+plt.savefig('glove_5000_iters.png')
