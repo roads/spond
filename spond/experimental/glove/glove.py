@@ -110,7 +110,9 @@ class GloveModel(nn.Module):
 
 glove = GloveModel(dataset.concept_len, EMBED_DIM)
 
-TRAIN = False
+TRAIN = True
+PLOT = False
+
 
 def weight_func(x, x_max, alpha):
     wx = (x/x_max)**alpha
@@ -165,50 +167,50 @@ else:
 
     glove.load_state_dict(torch.load('glove_min_5000.pt'))
 
+if PLOT:
+
+    # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
+    labelsfn = 'oidv6-class-descriptions.csv'
+
+    # Download from https://storage.googleapis.com/openimages/v6/oidv6-train-images-with-labels-with-rotation.csv
+    imgfn = 'oidv6-train-images-with-labels-with-rotation.csv'
 
 
-# Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
-labelsfn = 'oidv6-class-descriptions.csv'
+    import sys
 
-# Download from https://storage.googleapis.com/openimages/v6/oidv6-train-images-with-labels-with-rotation.csv
-imgfn = 'oidv6-train-images-with-labels-with-rotation.csv'
+    sys.path.append('/opt/github.com/spond/spond/experimental')
 
+    from openimage.readfile import readlabels, readimgs
 
-import sys
+    labels, names = readlabels(labelsfn, rootdir=rootdir)
+    idx_to_name = {
+        v: names[k] for k, v in labels.items()
+    }
+    #images = readimgs(imgfn, rootdir=rootdir)
 
-sys.path.append('/opt/github.com/spond/spond/experimental')
+    emb_i = glove.wi.weight.data.numpy()
+    emb_j = glove.wj.weight.data.numpy()
+    emb = emb_i + emb_j
+    top_k = 300
+    tsne = TSNE(metric='cosine', n_components=2, random_state=123, init='pca', perplexity=100.0, n_iter=5000)
 
-from openimage.readfile import readlabels, readimgs
+    # find the most commonly co-occuring items
+    # These are the items which appear the most times
+    incidences = dataset.cooc_mat.to_dense().sum(axis=0)
+    indexes = np.argsort(incidences)
+    top_k_indices = indexes[-top_k:]
 
-labels, names = readlabels(labelsfn, rootdir=rootdir)
-idx_to_name = {
-    v: names[k] for k, v in labels.items()
-}
-#images = readimgs(imgfn, rootdir=rootdir)
+    #embed_tsne = tsne.fit_transform(emb[:top_k, :])
+    embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
+    fig = plt.figure(figsize=(14, 14))
+    #ax = fig.add_subplot(111, projection='3d')
 
-emb_i = glove.wi.weight.data.numpy()
-emb_j = glove.wj.weight.data.numpy()
-emb = emb_i + emb_j
-top_k = 300
-tsne = TSNE(metric='cosine', n_components=2, random_state=123, init='pca', perplexity=50.0, n_iter=3000)
+    for idx, concept_idx in enumerate(top_k_indices):
+        m = embed_tsne[idx, :]
+        plt.scatter(*m, color='steelblue')
+        concept = idx_to_name[concept_idx.item()]
+        plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
+        #ax.text(m[0], m[1], m[2],  concept, size=20, zorder=1,
+        #        color='k')
 
-# find the most commonly co-occuring items
-# These are the items which appear the most times
-incidences = dataset.cooc_mat.to_dense().sum(axis=0)
-indexes = np.argsort(incidences)
-top_k_indices = indexes[-top_k:]
-
-#embed_tsne = tsne.fit_transform(emb[:top_k, :])
-embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
-fig = plt.figure(figsize=(14, 14))
-#ax = fig.add_subplot(111, projection='3d')
-
-for idx, concept_idx in enumerate(top_k_indices):
-    m = embed_tsne[idx, :]
-    plt.scatter(*m, color='steelblue')
-    concept = idx_to_name[concept_idx.item()]
-    plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
-    #ax.text(m[0], m[1], m[2],  concept, size=20, zorder=1,
-    #        color='k')
-
-plt.savefig('glove_5000_iters.png')
+    plt.savefig('glove_50_iters.png')
