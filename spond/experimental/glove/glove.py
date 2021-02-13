@@ -4,12 +4,11 @@ os.environ["CUDA_VISIBLE_DEVICES"] = ""
 
 from collections import Counter, defaultdict
 import numpy as np
-import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from sklearn.manifold import TSNE
+
 
 class GloveDataset:
 
@@ -168,6 +167,8 @@ else:
     glove.load_state_dict(torch.load('glove_min_5000.pt'))
 
 if PLOT:
+    import matplotlib.pyplot as plt
+    from sklearn.manifold import TSNE
 
     # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
     labelsfn = 'oidv6-class-descriptions.csv'
