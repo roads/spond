@@ -76,7 +76,8 @@ class GloveDataset:
             yield self.values[[batch_ids]], indices[:, 0], indices[:, 1]
 
 
-rootdir = '/opt/github.com/spond/spond/experimental/openimage'
+#rootdir = '/opt/github.com/spond/spond/experimental/openimage'
+rootdir = '/home/petra/spond/spond/experimental/openimage'
 
 
 dataset = GloveDataset(os.path.join(rootdir, 'co_occurrence.pt'))
@@ -110,7 +111,7 @@ class GloveModel(nn.Module):
 glove = GloveModel(dataset.concept_len, EMBED_DIM)
 
 TRAIN = True
-PLOT = False
+PLOT = True
 
 
 def weight_func(x, x_max, alpha):
@@ -127,7 +128,7 @@ if TRAIN:
     optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
     #optimizer = optim.Adam(glove.parameters(), lr=0.001)
 
-    N_EPOCHS = 50#00
+    N_EPOCHS = 500
     BATCH_SIZE = 2048
     X_MAX = 100
     ALPHA = 0.75
@@ -159,12 +160,12 @@ if TRAIN:
         print("Saving model...")
         if l < min_loss:
             min_loss = l
-            torch.save(glove.state_dict(), "glove_min.pt")
+            torch.save(glove.state_dict(), "glove_min_500.pt")
         torch.save(glove.state_dict(), "glove.pt")
 
 else:
 
-    glove.load_state_dict(torch.load('glove_min_5000.pt'))
+    glove.load_state_dict(torch.load('glove_min_500.pt'))
 
 if PLOT:
     import matplotlib.pyplot as plt
@@ -179,15 +180,14 @@ if PLOT:
 
     import sys
 
-    sys.path.append('/opt/github.com/spond/spond/experimental')
-
+    sys.path.append('/home/petra/spond/spond/experimental')
+    
     from openimage.readfile import readlabels, readimgs
 
-    labels, names = readlabels(labelsfn, rootdir=rootdir)
+    labels, names = readlabels(labelsfn, rootdir='/home/petra/data')
     idx_to_name = {
         v: names[k] for k, v in labels.items()
     }
-    #images = readimgs(imgfn, rootdir=rootdir)
 
     emb_i = glove.wi.weight.data.numpy()
     emb_j = glove.wj.weight.data.numpy()
@@ -203,7 +203,7 @@ if PLOT:
 
     #embed_tsne = tsne.fit_transform(emb[:top_k, :])
     embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
-    fig = plt.figure(figsize=(14, 14))
+    fig = plt.figure(figsize=(50, 50))
     #ax = fig.add_subplot(111, projection='3d')
 
     for idx, concept_idx in enumerate(top_k_indices):
@@ -214,4 +214,4 @@ if PLOT:
         #ax.text(m[0], m[1], m[2],  concept, size=20, zorder=1,
         #        color='k')
 
-    plt.savefig('glove_50_iters.png')
+    plt.savefig('glove_500_iters.png')
