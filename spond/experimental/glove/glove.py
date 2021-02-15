@@ -1,7 +1,5 @@
 import os
-
-os.environ["CUDA_VISIBLE_DEVICES"] = ""
-
+import socket
 from collections import Counter, defaultdict
 import numpy as np
 import torch
@@ -10,18 +8,37 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 
-class GloveDataset:
+hostname = socket.gethostname()
 
-    def init__(self, text, n_words=200000, window_size=5):
+if hostname.endswith("pals.ucl.ac.uk"):
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    device = "cpu"
+else:
+    # Detect if GPUs are available
+    GPU = torch.cuda.is_available()
+
+    # If you have a problem with your GPU, set this to "cpu" manually
+    device = torch.device("cuda:0" if GPU else "cpu")
+    parallel = 5
+
+    if socket.gethostname() == 'tempoyak':
+        device = "cpu"
+        parallel = 0
+
+#USE_GPU = device != "cpu"
+
+
+class GloveWordsDataset:
+
+    def __init__(self, text, n_words=200000, window_size=5):
         self._window_size = window_size
         self._tokens = text.split(" ")[:n_words]
         word_counter = Counter()
         word_counter.update(self._tokens)
-        # our equivalent: labels to index
         self._word2id = {w:i for i, (w,_) in enumerate(word_counter.most_common())}
         self._id2word = {i:w for w, i in self._word2id.items()}
-        # our equivalent: total number of labels
         self._vocab_len = len(self._word2id)
+        self.concept_len = self._vocab_len
 
         self._id_tokens = [self._word2id[w] for w in self._tokens]
 
@@ -39,11 +56,9 @@ class GloveDataset:
                 if i != j:
                     c = self._id_tokens[j]
                     cooc_mat[w][c] += 1 / abs(j-i)
-        # equivalent: label IDs
+
         self._i_idx = list()
-        # equivalent: label IDs
         self._j_idx = list()
-        # equivalent: values
         self._xij = list()
 
         #Create indexes and x values tensors
@@ -53,21 +68,37 @@ class GloveDataset:
                 self._j_idx.append(c)
                 self._xij.append(v)
 
-        self._i_idx = torch.LongTensor(self._i_idx)#.cuda()
-        self._j_idx = torch.LongTensor(self._j_idx)#.cuda()
-        self._xij = torch.FloatTensor(self._xij)#.cuda()
+        self._i_idx = torch.LongTensor(self._i_idx).to(device)
+        self._j_idx = torch.LongTensor(self._j_idx).to(device)
+        self._xij = torch.FloatTensor(self._xij).to(device)
+
+
+    def get_batches(self, batch_size):
+        #Generate random idx
+        rand_ids = torch.LongTensor(np.random.choice(len(self._xij), len(self._xij), replace=False))
+
+        for p in range(0, len(rand_ids), batch_size):
+            batch_ids = rand_ids[p:p+batch_size]
+            yield self._xij[batch_ids], self._i_idx[batch_ids], self._j_idx[batch_ids]
+
+
+
+class GloveDataset:
 
     def __init__(self, filename):
         # Load the pre-constructed co_occurrence.pt which should be a
         # sparse tensor.
-        self.cooc_mat = torch.load(filename).coalesce()
+        self.cooc_mat = torch.load(filename).coalesce().to(device)
         # get into the right shape for batch generation
-        self.indices = self.cooc_mat.indices().t()
-        self.values = self.cooc_mat.values()
+        self.indices = self.cooc_mat.indices().t().to(device)
+        self.values = self.cooc_mat.values().to(device)
         self.concept_len = self.indices.max().item() + 1
 
     def get_batches(self, batch_size):
-        N = self.concept_len
+        if batch_size < self.concept_len:
+            N = self.concept_len
+        else:
+            N = self.indices.shape[0]
         rand_ids = torch.LongTensor(np.random.choice(N, N, replace=False))
 
         for p in range(0, len(rand_ids), batch_size):
@@ -76,14 +107,13 @@ class GloveDataset:
             yield self.values[[batch_ids]], indices[:, 0], indices[:, 1]
 
 
-#rootdir = '/opt/github.com/spond/spond/experimental/openimage'
-rootdir = '/home/petra/spond/spond/experimental/openimage'
+if hostname == 'tempoyak':
+    rootdir = '/opt/github.com/spond/spond/experimental/openimage'
+else:
+    rootdir = '/home/petra/spond/spond/experimental/openimage'
 
 
-dataset = GloveDataset(os.path.join(rootdir, 'co_occurrence.pt'))
 
-
-EMBED_DIM = 300
 class GloveModel(nn.Module):
     def __init__(self, num_embeddings, embedding_dim):
         super(GloveModel, self).__init__()
@@ -108,27 +138,41 @@ class GloveModel(nn.Module):
         return x
 
 
-glove = GloveModel(dataset.concept_len, EMBED_DIM)
 
+# Train the model
 TRAIN = True
-PLOT = True
+# Load pre-trained
+PLOT = False
+# If True use wiki words dataset otherwise Openimage
+WORDS = True
+
+EMBED_DIM = 300
+
+
+if WORDS:
+    dataset = GloveWordsDataset(open("text8").read(), 10000000)
+else:
+    dataset = GloveDataset(os.path.join(rootdir, 'co_occurrence.pt'))
+
+glove = GloveModel(dataset.concept_len, EMBED_DIM).to(device)
 
 
 def weight_func(x, x_max, alpha):
+
     wx = (x/x_max)**alpha
     wx = torch.min(wx, torch.ones_like(wx))
-    return wx#.cuda()
+    return wx.to(device)
 
 def wmse_loss(weights, inputs, targets):
     loss = weights * F.mse_loss(inputs, targets, reduction='none')
-    return torch.mean(loss)#.cuda()
+    return torch.mean(loss).to(device)
 
 if TRAIN:
 
     optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
-    #optimizer = optim.Adam(glove.parameters(), lr=0.001)
 
-    N_EPOCHS = 500
+
+    N_EPOCHS = 100
     BATCH_SIZE = 2048
     X_MAX = 100
     ALPHA = 0.75
@@ -160,12 +204,12 @@ if TRAIN:
         print("Saving model...")
         if l < min_loss:
             min_loss = l
-            torch.save(glove.state_dict(), "glove_min_500.pt")
+            torch.save(glove.state_dict(), "glove_min.pt")
         torch.save(glove.state_dict(), "glove.pt")
 
 else:
 
-    glove.load_state_dict(torch.load('glove_min_500.pt'))
+    glove.load_state_dict(torch.load('glove_min.pt'))
 
 if PLOT:
     import matplotlib.pyplot as plt
@@ -174,17 +218,21 @@ if PLOT:
     # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
     labelsfn = 'oidv6-class-descriptions.csv'
 
-    # Download from https://storage.googleapis.com/openimages/v6/oidv6-train-images-with-labels-with-rotation.csv
-    imgfn = 'oidv6-train-images-with-labels-with-rotation.csv'
-
 
     import sys
 
-    sys.path.append('/home/petra/spond/spond/experimental')
-    
+    if hostname == 'tempoyak':
+        ppath = '/opt/github.com/spond/spond/experimental'
+        datapath = '/opt/github.com/spond/spond/experimental/openimage'
+    else:
+        ppath = '/home/petra/spond/spond/experimental'
+        datapath = '/home/petra/data'
+
+    sys.path.append(ppath)
+
     from openimage.readfile import readlabels, readimgs
 
-    labels, names = readlabels(labelsfn, rootdir='/home/petra/data')
+    labels, names = readlabels(labelsfn, rootdir=datapath)
     idx_to_name = {
         v: names[k] for k, v in labels.items()
     }
@@ -192,26 +240,39 @@ if PLOT:
     emb_i = glove.wi.weight.data.numpy()
     emb_j = glove.wj.weight.data.numpy()
     emb = emb_i + emb_j
-    top_k = 300
-    tsne = TSNE(metric='cosine', n_components=2, random_state=123, init='pca', perplexity=100.0, n_iter=5000)
+    tsne = TSNE(metric='cosine', n_components=2, random_state=123)#, init='pca', perplexity=100.0, n_iter=5000)
 
     # find the most commonly co-occuring items
     # These are the items which appear the most times
-    incidences = dataset.cooc_mat.to_dense().sum(axis=0)
-    indexes = np.argsort(incidences)
-    top_k_indices = indexes[-top_k:]
+    dense = dataset.cooc_mat.to_dense()
+    incidences = dense.sum(axis=0)
+    nonzero = np.nonzero(incidences)
+    nonzero_incidences = incidences[nonzero]
+    indexes = np.argsort(nonzero_incidences.t()).squeeze()
+    top_k = min(300, indexes.shape[0])
+    top_k_indices = nonzero[indexes[-top_k:]].t().squeeze()
 
-    #embed_tsne = tsne.fit_transform(emb[:top_k, :])
-    embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
-    fig = plt.figure(figsize=(50, 50))
-    #ax = fig.add_subplot(111, projection='3d')
 
-    for idx, concept_idx in enumerate(top_k_indices):
-        m = embed_tsne[idx, :]
-        plt.scatter(*m, color='steelblue')
-        concept = idx_to_name[concept_idx.item()]
-        plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
-        #ax.text(m[0], m[1], m[2],  concept, size=20, zorder=1,
-        #        color='k')
+    # plt.figure(figsize=(14, 14))
+    #
+    # for idx, concept_idx in enumerate(top_k_indices):
+    #     m = emb[idx, :]
+    #     plt.scatter(*m, color='steelblue')
+    #     concept = idx_to_name[concept_idx.item()]
+    #     plt.annotate(concept, (m[0], m[1]), alpha=0.7)
 
-    plt.savefig('glove_500_iters.png')
+    if True:
+        #embed_tsne = tsne.fit_transform(emb[:top_k, :])
+        embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
+        fig = plt.figure(figsize=(14, 14))
+        #ax = fig.add_subplot(111, projection='3d')
+
+        for idx, concept_idx in enumerate(top_k_indices):
+            m = embed_tsne[idx, :]
+            plt.scatter(*m, color='steelblue')
+            concept = idx_to_name[concept_idx.item()]
+            plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
+            #ax.text(m[0], m[1], m[2],  concept, size=20, zorder=1,
+            #        color='k')
+
+        plt.savefig('glove.png')
