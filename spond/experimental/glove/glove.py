@@ -142,11 +142,11 @@ class GloveModel(nn.Module):
 # Train the model
 TRAIN = True
 # Load pre-trained
-PLOT = False
+PLOT = True
 # If True use wiki words dataset otherwise Openimage
-WORDS = True
+WORDS = False
 
-EMBED_DIM = 300
+EMBED_DIM = 6#300
 
 
 if WORDS:
@@ -172,8 +172,8 @@ if TRAIN:
     optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
 
 
-    N_EPOCHS = 100
-    BATCH_SIZE = 2048
+    N_EPOCHS = 1000
+    BATCH_SIZE = 20480
     X_MAX = 100
     ALPHA = 0.75
     n_batches = int(dataset.concept_len / BATCH_SIZE)
@@ -208,63 +208,70 @@ if TRAIN:
         torch.save(glove.state_dict(), "glove.pt")
 
 else:
-
-    glove.load_state_dict(torch.load('glove_min.pt'))
+    kws = {}
+    if device == 'cpu':
+        kws['map_location'] = device
+    glove.load_state_dict(
+        torch.load('glove_min.pt', **kws))
 
 if PLOT:
     import matplotlib.pyplot as plt
     from sklearn.manifold import TSNE
 
-    # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
-    labelsfn = 'oidv6-class-descriptions.csv'
-
-
-    import sys
-
-    if hostname == 'tempoyak':
-        ppath = '/opt/github.com/spond/spond/experimental'
-        datapath = '/opt/github.com/spond/spond/experimental/openimage'
+    if WORDS:
+        emb_i = glove.wi.weight.cpu().data.numpy()
+        emb_j = glove.wj.weight.cpu().data.numpy()
+        emb = emb_i + emb_j
+        top_k = 300
+        tsne = TSNE(metric='cosine', random_state=123)
+        embed_tsne = tsne.fit_transform(emb[:top_k, :])
+        fig, ax = plt.subplots(figsize=(40, 40))
+        for idx in range(top_k):
+            plt.scatter(*embed_tsne[idx, :], color='steelblue')
+            plt.annotate(dataset._id2word[idx],
+                         (embed_tsne[idx, 0], embed_tsne[idx, 1]),
+                         alpha=0.7)
+        plt.savefig('glove_words.png')
     else:
-        ppath = '/home/petra/spond/spond/experimental'
-        datapath = '/home/petra/data'
-
-    sys.path.append(ppath)
-
-    from openimage.readfile import readlabels, readimgs
-
-    labels, names = readlabels(labelsfn, rootdir=datapath)
-    idx_to_name = {
-        v: names[k] for k, v in labels.items()
-    }
-
-    emb_i = glove.wi.weight.data.numpy()
-    emb_j = glove.wj.weight.data.numpy()
-    emb = emb_i + emb_j
-    tsne = TSNE(metric='cosine', n_components=2, random_state=123)#, init='pca', perplexity=100.0, n_iter=5000)
-
-    # find the most commonly co-occuring items
-    # These are the items which appear the most times
-    dense = dataset.cooc_mat.to_dense()
-    incidences = dense.sum(axis=0)
-    nonzero = np.nonzero(incidences)
-    nonzero_incidences = incidences[nonzero]
-    indexes = np.argsort(nonzero_incidences.t()).squeeze()
-    top_k = min(300, indexes.shape[0])
-    top_k_indices = nonzero[indexes[-top_k:]].t().squeeze()
+        # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
+        labelsfn = 'oidv6-class-descriptions.csv'
 
 
-    # plt.figure(figsize=(14, 14))
-    #
-    # for idx, concept_idx in enumerate(top_k_indices):
-    #     m = emb[idx, :]
-    #     plt.scatter(*m, color='steelblue')
-    #     concept = idx_to_name[concept_idx.item()]
-    #     plt.annotate(concept, (m[0], m[1]), alpha=0.7)
+        import sys
 
-    if True:
-        #embed_tsne = tsne.fit_transform(emb[:top_k, :])
+        if hostname == 'tempoyak':
+            ppath = '/opt/github.com/spond/spond/experimental'
+            datapath = '/opt/github.com/spond/spond/experimental/openimage'
+        else:
+            ppath = '/home/petra/spond/spond/experimental'
+            datapath = '/home/petra/data'
+
+        sys.path.append(ppath)
+
+        from openimage.readfile import readlabels, readimgs
+
+        labels, names = readlabels(labelsfn, rootdir=datapath)
+        idx_to_name = {
+            v: names[k] for k, v in labels.items()
+        }
+
+        emb_i = glove.wi.weight.data.numpy()
+        emb_j = glove.wj.weight.data.numpy()
+        emb = emb_i + emb_j
+        tsne = TSNE(metric='cosine', n_components=2, random_state=123)#, init='pca', perplexity=100.0, n_iter=5000)
+
+        # find the most commonly co-occuring items
+        # These are the items which appear the most times
+        dense = dataset.cooc_mat.to_dense()
+        incidences = dense.sum(axis=0)
+        nonzero = np.nonzero(incidences)
+        nonzero_incidences = incidences[nonzero]
+        indexes = np.argsort(nonzero_incidences.t()).squeeze()
+        top_k = min(300, indexes.shape[0])
+        top_k_indices = nonzero[indexes[-top_k:]].t().squeeze()
+
         embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
-        fig = plt.figure(figsize=(14, 14))
+        fig = plt.figure(figsize=(30, 30))
         #ax = fig.add_subplot(111, projection='3d')
 
         for idx, concept_idx in enumerate(top_k_indices):
@@ -272,7 +279,5 @@ if PLOT:
             plt.scatter(*m, color='steelblue')
             concept = idx_to_name[concept_idx.item()]
             plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
-            #ax.text(m[0], m[1], m[2],  concept, size=20, zorder=1,
-            #        color='k')
 
         plt.savefig('glove.png')
