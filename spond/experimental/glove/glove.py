@@ -95,10 +95,7 @@ class GloveDataset:
         self.concept_len = self.indices.max().item() + 1
 
     def get_batches(self, batch_size):
-        if batch_size < self.concept_len:
-            N = self.concept_len
-        else:
-            N = self.indices.shape[0]
+        N = self.indices.shape[0]
         rand_ids = torch.LongTensor(np.random.choice(N, N, replace=False))
 
         for p in range(0, len(rand_ids), batch_size):
@@ -146,7 +143,7 @@ PLOT = True
 # If True use wiki words dataset otherwise Openimage
 WORDS = False
 
-EMBED_DIM = 6#300
+EMBED_DIM = 6
 
 
 if WORDS:
@@ -173,10 +170,10 @@ if TRAIN:
 
 
     N_EPOCHS = 1000
-    BATCH_SIZE = 20480
+    BATCH_SIZE = 100000#20480
     X_MAX = 100
     ALPHA = 0.75
-    n_batches = int(dataset.concept_len / BATCH_SIZE)
+    n_batches = int(dataset.indices.shape[0] / BATCH_SIZE)
     loss_values = list()
     min_loss = np.inf
     l = np.inf
@@ -225,7 +222,7 @@ if PLOT:
         top_k = 300
         tsne = TSNE(metric='cosine', random_state=123)
         embed_tsne = tsne.fit_transform(emb[:top_k, :])
-        fig, ax = plt.subplots(figsize=(40, 40))
+        fig, ax = plt.subplots(figsize=(14, 14))
         for idx in range(top_k):
             plt.scatter(*embed_tsne[idx, :], color='steelblue')
             plt.annotate(dataset._id2word[idx],
@@ -248,6 +245,7 @@ if PLOT:
 
         sys.path.append(ppath)
 
+        TOP_K = 500
         from openimage.readfile import readlabels, readimgs
 
         labels, names = readlabels(labelsfn, rootdir=datapath)
@@ -258,7 +256,7 @@ if PLOT:
         emb_i = glove.wi.weight.data.numpy()
         emb_j = glove.wj.weight.data.numpy()
         emb = emb_i + emb_j
-        tsne = TSNE(metric='cosine', n_components=2, random_state=123)#, init='pca', perplexity=100.0, n_iter=5000)
+        tsne = TSNE(metric='cosine', n_components=2, random_state=123)
 
         # find the most commonly co-occuring items
         # These are the items which appear the most times
@@ -267,12 +265,11 @@ if PLOT:
         nonzero = np.nonzero(incidences)
         nonzero_incidences = incidences[nonzero]
         indexes = np.argsort(nonzero_incidences.t()).squeeze()
-        top_k = min(300, indexes.shape[0])
+        top_k = min(TOP_K, indexes.shape[0])
         top_k_indices = nonzero[indexes[-top_k:]].t().squeeze()
 
         embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
-        fig = plt.figure(figsize=(30, 30))
-        #ax = fig.add_subplot(111, projection='3d')
+        fig = plt.figure(figsize=(14, 14))
 
         for idx, concept_idx in enumerate(top_k_indices):
             m = embed_tsne[idx, :]
