@@ -13,6 +13,7 @@ hostname = socket.gethostname()
 if hostname.endswith("pals.ucl.ac.uk"):
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     device = "cpu"
+    torch.set_num_threads(int(os.cpu_count() / 4))
 else:
     # Detect if GPUs are available
     GPU = torch.cuda.is_available()
@@ -137,7 +138,7 @@ class GloveModel(nn.Module):
 
 
 # Train the model
-TRAIN = True
+TRAIN = False
 # Load pre-trained
 PLOT = True
 # If True use wiki words dataset otherwise Openimage
@@ -169,8 +170,8 @@ if TRAIN:
     optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
 
 
-    N_EPOCHS = 1000
-    BATCH_SIZE = 100000#20480
+    N_EPOCHS = 500
+    BATCH_SIZE = 1000000#20480
     X_MAX = 100
     ALPHA = 0.75
     n_batches = int(dataset.indices.shape[0] / BATCH_SIZE)
@@ -269,7 +270,7 @@ if PLOT:
         top_k_indices = nonzero[indexes[-top_k:]].t().squeeze()
 
         embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
-        fig = plt.figure(figsize=(14, 14))
+        fig = plt.figure(figsize=(40, 40))
 
         for idx, concept_idx in enumerate(top_k_indices):
             m = embed_tsne[idx, :]
