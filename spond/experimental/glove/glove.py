@@ -121,7 +121,7 @@ if __name__ == '__main__':
         if device == 'cpu':
             kws['map_location'] = device
         glove.load_state_dict(
-            f"{glove_opts['output_file']}_min.pt")
+            torch.load(f"{glove_opts['output_file']}_min.pt", **kws))
     # plotting is auxiliary so not in a function yet
     if cfg['plot']:
         import matplotlib.pyplot as plt
