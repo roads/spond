@@ -63,7 +63,8 @@ def wmse_loss(weights, inputs, targets):
     return torch.mean(loss).to(device)
 
 
-def train(model, dataset, n_epochs, batch_size, x_max=100, alpha=0.75):
+def train(model, dataset, n_epochs, batch_size, x_max=100, alpha=0.75,
+          output_filename='glove'):
     optimizer = optim.Adagrad(glove.parameters(), lr=0.05)
 
     n_batches = int(dataset.N / batch_size)
@@ -94,8 +95,8 @@ def train(model, dataset, n_epochs, batch_size, x_max=100, alpha=0.75):
         print("Saving model...")
         if l < min_loss:
             min_loss = l
-            torch.save(model.state_dict(), "glove_min_test.pt")
-        torch.save(model.state_dict(), "glove_test.pt")
+            torch.save(model.state_dict(), f"{output_filename}_min.pt")
+        torch.save(model.state_dict(), f"{output_filename}.pt")
 
 
 if __name__ == '__main__':
@@ -113,13 +114,14 @@ if __name__ == '__main__':
 
     if cfg['train']:
         train(glove, dataset, glove_opts['n_epochs'], glove_opts['batch_size'],
-              glove_opts['x_max'], glove_opts['alpha'])
+              glove_opts['x_max'], glove_opts['alpha'],
+              glove_opts['output_file'])
     else:
         kws = {}
         if device == 'cpu':
             kws['map_location'] = device
         glove.load_state_dict(
-            torch.load('glove_min_test.pt', **kws))
+            f"{glove_opts['output_file']}_min.pt")
     # plotting is auxiliary so not in a function yet
     if cfg['plot']:
         import matplotlib.pyplot as plt
@@ -141,23 +143,21 @@ if __name__ == '__main__':
             plt.savefig('glove_words.png')
         else:
             # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
-            labelsfn = 'oidv6-class-descriptions.csv'
+            #labelsfn = 'oidv6-class-descriptions.csv'
 
             import sys
 
             if hostname == 'tempoyak':
                 ppath = '/opt/github.com/spond/spond/experimental'
-                datapath = '/opt/github.com/spond/spond/experimental/openimage'
             else:
                 ppath = '/home/petra/spond/spond/experimental'
-                datapath = '/home/petra/data'
-
+            labelsfn = cfg['labels_file']
             sys.path.append(ppath)
 
             TOP_K = 500
             from openimage.readfile import readlabels
 
-            labels, names = readlabels(labelsfn, rootdir=datapath)
+            labels, names = readlabels(labelsfn, rootdir=None)
             idx_to_name = {
                 v: names[k] for k, v in labels.items()
             }
@@ -165,8 +165,6 @@ if __name__ == '__main__':
             emb_i = glove.wi.weight.data.numpy()
             emb_j = glove.wj.weight.data.numpy()
             emb = emb_i + emb_j
-            tsne = TSNE(metric='cosine', n_components=2, random_state=123)
-
             # find the most commonly co-occuring items
             # These are the items which appear the most times
             dense = dataset.cooc_mat.to_dense()
@@ -177,13 +175,19 @@ if __name__ == '__main__':
             top_k = min(TOP_K, indexes.shape[0])
             top_k_indices = nonzero[indexes[-top_k:]].t().squeeze()
 
-            embed_tsne = tsne.fit_transform(emb[top_k_indices, :])
+            if glove_opts['embed_dim'] == 2:
+                embeddings = emb[top_k_indices, :]
+            else:
+
+                tsne = TSNE(metric='cosine', n_components=2, random_state=123)
+                embeddings = tsne.fit_transform(emb[top_k_indices, :])
+
             fig = plt.figure(figsize=(14, 14))
 
             for idx, concept_idx in enumerate(top_k_indices):
-                m = embed_tsne[idx, :]
+                m = embeddings[idx, :]
                 plt.scatter(*m, color='steelblue')
                 concept = idx_to_name[concept_idx.item()]
-                plt.annotate(concept, (embed_tsne[idx, 0], embed_tsne[idx, 1]), alpha=0.7)
-
-            plt.savefig('glove_test.png')
+                plt.annotate(concept, (embeddings[idx, 0], embeddings[idx, 1]),
+                             alpha=0.7)
+            plt.savefig(f"{glove_opts['output_file']}.png")

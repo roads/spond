@@ -1,4 +1,5 @@
-# all in one script for now, until we figure out what the real workflow should be
+# This module processes OpenImages data files
+# http://storage.googleapis.com/openimages/web/download.html
 from copy import copy
 
 import torch
@@ -44,11 +45,19 @@ def readlabels(labelsfn, rootdir='.'):
     """
     labels = {}
     names = {}
-    fn = os.path.join(rootdir, labelsfn)
+    if rootdir is not None:
+        fn = os.path.join(rootdir, labelsfn)
+    else:
+        fn = labelsfn
     with open(fn) as fh:
         for idx, line in enumerate(fh):
+            # some files have the first line as a header
+            # some do not
+            # first line will either start with "#" or not start with "/m"
+            # unfortunately the file format is not consistent
             if idx == 0:
-                continue
+                if line.startswith("#") or not line.startswith("/m"):
+                    continue
             # label,objectname - maybe do something else with objectname later
             # for now we only care about label
             label, objectname = line.strip().split(",")[:2]

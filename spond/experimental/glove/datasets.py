@@ -72,10 +72,10 @@ class GloveDataset:
         self.indices = self.cooc_mat.indices().t().to(device)
         self.values = self.cooc_mat.values().to(device)
         self.concept_len = self.indices.max().item() + 1
+        self.N = self.indices.shape[0]
 
     def get_batches(self, batch_size):
-        N = self.indices.shape[0]
-        self.N = N
+        N = self.N
         rand_ids = torch.LongTensor(np.random.choice(N, N, replace=False))
 
         for p in range(0, len(rand_ids), batch_size):
