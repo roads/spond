@@ -7,24 +7,9 @@ import torch.optim as optim
 import torch.nn.functional as F
 
 from spond.experimental.glove.datasets import GloveWordsDataset, GloveDataset
+from spond.experimental.utils import setup_torch
 
-hostname = socket.gethostname()
-
-if hostname.endswith("pals.ucl.ac.uk"):
-    os.environ["CUDA_VISIBLE_DEVICES"] = ""
-    device = "cpu"
-    torch.set_num_threads(int(os.cpu_count() / 4))
-else:
-    # Detect if GPUs are available
-    GPU = torch.cuda.is_available()
-
-    # If you have a problem with your GPU, set this to "cpu" manually
-    device = torch.device("cuda:0" if GPU else "cpu")
-    parallel = 5
-
-    if socket.gethostname() == 'tempoyak':
-        device = "cpu"
-        parallel = 0
+device = setup_torch()
 
 
 class GloveModel(nn.Module):
