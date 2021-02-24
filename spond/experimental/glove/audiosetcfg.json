@@ -1,0 +1,15 @@
+{
+  "train": true,
+  "plot": true,
+  "co_occurrence_file": "/opt/github.com/spond/spond/experimental/audioset/co_occurrence_audio_all.pt",
+  "labels_file":  "/opt/github.com/spond/spond/experimental/audioset/all_labels.csv",
+  "glove_options": {
+    "words_dataset": false,
+    "embed_dim": 6,
+    "n_epochs": 4000,
+    "batch_size": 1000000,
+    "x_max": 100,
+    "alpha": 0.75,
+    "output_file": "glove_audio.pt"
+  }
+}

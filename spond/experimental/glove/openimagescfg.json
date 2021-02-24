@@ -1,0 +1,15 @@
+{
+  "train": true,
+  "plot": true,
+  "co_occurrence_file": "/opt/github.com/spond/spond/experimental/openimage/co_occurrence.pt",
+  "labels_file": "/opt/github.com/spond/spond/experimental/openimage/oidv6-class-descriptions.csv'",
+  "glove_options": {
+    "words_dataset": false,
+    "embed_dim": 6,
+    "n_epochs": 2000,
+    "batch_size": 1000000,
+    "x_max": 100,
+    "alpha": 0.75,
+    "output_file": "glove_imgs"
+  }
+}

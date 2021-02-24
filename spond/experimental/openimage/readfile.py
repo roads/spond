@@ -1,4 +1,5 @@
-# all in one script for now, until we figure out what the real workflow should be
+# This module processes OpenImages data files
+# http://storage.googleapis.com/openimages/web/download.html
 from copy import copy
 
 import torch
@@ -43,15 +44,26 @@ def readlabels(labelsfn, rootdir='.'):
         Dictionary of labels to label index, 0 indexed
     """
     labels = {}
-    fn = os.path.join(rootdir, labelsfn)
+    names = {}
+    if rootdir is not None:
+        fn = os.path.join(rootdir, labelsfn)
+    else:
+        fn = labelsfn
     with open(fn) as fh:
-        # this file has no header so the first item is 0
         for idx, line in enumerate(fh):
+            # some files have the first line as a header
+            # some do not
+            # first line will either start with "#" or not start with "/m"
+            # unfortunately the file format is not consistent
+            if idx == 0:
+                if line.startswith("#") or not line.startswith("/m"):
+                    continue
             # label,objectname - maybe do something else with objectname later
             # for now we only care about label
-            label = line.strip().split(",")[0]
-            labels[label] = idx
-    return labels
+            label, objectname = line.strip().split(",")[:2]
+            labels[label] = idx-1
+            names[label] = objectname
+    return labels, names
 
 
 @timed
@@ -147,11 +159,6 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False,
 
     Returns
     -------
-    imglabels: {str: {str: float}}
-        First level keys are image index,
-        second level keys are label index,
-        second level values are score.
-        Score = 1 if confidence is not used, else 1 * confidence
     coo: {(int, int): float}
         Co-occurrence dictionary.
         Keys are (image index, other image index)
@@ -163,7 +170,8 @@ def generate_cooccurrence(filename, labels, images, use_confidence=False,
     out = subprocess.run(["wc", "-l", fn], capture_output=True)
     nlines = int(out.stdout.decode().split(" ")[0])
     if parallel:
-        multiprocessing.set_start_method('spawn')
+        if not os.environ.get('TESTING'):
+            multiprocessing.set_start_method('spawn')
         argslist = []
         nworkers = 2
         increment = nlines // nworkers
@@ -254,18 +262,25 @@ if __name__ == '__main__':
 
     # Download from https://storage.googleapis.com/openimages/v6/oidv6-train-annotations-human-imagelabels.csv
     # The file is large, so not included in source control
-    #fn = os.path.join(rootdir, "oidv6-train-annotations-human-imagelabels.csv")
-    fn = "oidv6-train-annotations-bbox.csv"
+    # This file is the source of the image-label mappings whose counts
+    # become the co-occurrence matrix data.
+    fn = os.path.join(rootdir, "oidv6-train-annotations-human-imagelabels.csv")
+    #fn = "oidv6-train-annotations-bbox.csv"
 
     # Download from https://storage.googleapis.com/openimages/v6/oidv6-class-descriptions.csv
+    # This file is the mapping from label to name
+    # The position of a label in this file is the label index in the final output
     labelsfn = 'oidv6-class-descriptions.csv'
 
     # Download from https://storage.googleapis.com/openimages/v6/oidv6-train-images-with-labels-with-rotation.csv
+    # This must be a list of image IDs with data.
+    # The position of an image ID in this file is the image index
+    # used to compute the co-occurrence matrix.
+    # There is no co-occurrence data in this file.
     imgfn = 'oidv6-train-images-with-labels-with-rotation.csv'
 
-
-    labels = readlabels(labelsfn, rootdir=rootdir)
+    labels, names = readlabels(labelsfn, rootdir=rootdir)
     images = readimgs(imgfn, rootdir=rootdir)
     coo_pt = generate_cooccurrence(fn, labels, images, rootdir=rootdir)
-
+    coo_pt = coo_pt.coalesce()
     torch.save(coo_pt, 'co_occurrence.pt')

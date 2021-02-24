@@ -1,0 +1,14 @@
+{
+  "train": true,
+  "plot": true,
+  "co_occurrence_file": "/opt/github.com/spond/spond/experimental/glove/text8",
+  "glove_options": {
+    "words_dataset": true,
+    "embed_dim": 300,
+    "n_epochs": 5,
+    "batch_size": 1000000,
+    "x_max": 100,
+    "alpha": 0.75,
+    "output_file": "glove_words"
+  }
+}

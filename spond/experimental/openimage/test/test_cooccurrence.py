@@ -1,7 +1,9 @@
+import os
 import unittest
 import torch
 
 from spond.experimental.openimage import readfile
+
 
 class TestProcessing(unittest.TestCase):
 
@@ -15,7 +17,8 @@ class TestProcessing(unittest.TestCase):
         self.datafn = "test-annotations.csv"
 
         self.imgdict = readfile.readimgs(self.imgfn, self.rootdir)
-        self.labelsdict = readfile.readimgs(self.labelsfn, self.rootdir)
+        self.labelsdict, self.namesdict = readfile.readlabels(self.labelsfn, self.rootdir)
+        os.environ['TESTING'] = "TESTING"
 
     def lookup(self, image, label):
         # given the label strings, return the indexes in the dictionaries
@@ -32,11 +35,12 @@ class TestProcessing(unittest.TestCase):
         self.assertEquals(max(imgdict.values()), len(imgdict) - 1)
 
     def test_process_labels(self):
-        labelsdict = self.labelsdict
+        labelsdict, names = self.labelsdict, self.namesdict
         # there are only 9 images in this file
         self.assertEquals(len(labelsdict), 9)
         self.assertEquals(min(labelsdict.values()), 0)
         self.assertEquals(max(labelsdict.values()), len(labelsdict) - 1)
+        self.assertEquals(len(names), 9)
 
     def test_cooccurrence_matrix_use_confidence(self):
         imgdict = readfile.readimgs(self.imgfn, self.rootdir)
