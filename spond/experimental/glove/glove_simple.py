@@ -15,17 +15,33 @@ from torch.utils.data import DataLoader, Dataset
 
 
 
-class GloveEmbedding(nn.Embedding):
-    # Embedding that has an attached glove loss
-
+class GloveModule(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, co_occurrence,
                  device='cpu', x_max=100, alpha=0.75):
-        # co_occurrence must be a matrix of index to incidence
-        super(GloveEmbedding, self).__init__(num_embeddings, embedding_dim)
-        self.co_occurrence = co_occurrence
+        super(GloveModule, self).__init__()
+        self.wi = nn.Embedding(num_embeddings, embedding_dim)
+        self.wj = nn.Embedding(num_embeddings, embedding_dim)
+        self.bi = nn.Embedding(num_embeddings, 1)
+        self.bj = nn.Embedding(num_embeddings, 1)
+
+        self.wi.weight.data.uniform_(-1, 1)
+        self.wj.weight.data.uniform_(-1, 1)
+        self.bi.weight.data.zero_()
+        self.bj.weight.data.zero_()
+
+        self.co_occurrence = co_occurrence.coalesce()
         self.device = device
         self.x_max = x_max
         self.alpha = alpha
+
+    def forward(self, i_indices, j_indices):
+        w_i = self.wi(i_indices)
+        w_j = self.wj(j_indices)
+        b_i = self.bi(i_indices).squeeze()
+        b_j = self.bj(j_indices).squeeze()
+        x = torch.sum(w_i * w_j, dim=1) + b_i + b_j
+
+        return x
 
     def weight_func(self, x):
         # x: co_occurrence values
@@ -41,10 +57,35 @@ class GloveEmbedding(nn.Embedding):
         # not sure what it should be replaced by here
         # "targets" are the log of the co-occurrence statistics.
         # need to make every pair of indices that exist in co-occurrence file
-        used_indices = indices
-        targets = self.co_occurrence[used_indices]
+        from itertools import combinations
+        # Not every index will be represented in the co_occurrence matrix
+        # To calculate glove loss, we will take all the pairs in the co-occurrence
+        # that contain anything in the current set of indices.
+        allindices = self.co_occurrence.indices()
+        # The following is terrible, but figure it out once we get it working
+        # Converting to numpy is very slow
+        intersection = set(indices.numpy()).intersection(
+            set(allindices.unique().numpy()))
+        if not len(intersection):
+            return 0
+        intersection = np.array(list(intersection))
+        allpairs = torch.vstack([
+            allindices.t()[allindices[0] == index]
+            for index in intersection
+        ])
+        # cannot index into a sparse tensor with pairs
+        # so we have to find the indices of these pairs, and then
+        # find the values corresponding to those.
+        targets = torch.Tensor([
+            self.co_occurrence[item[0]][item[1]]
+            for item in allpairs
+        ])
         weights_x = self.weight_func(targets)
-        loss = weights_x * F.mse_loss(self.inputs, torch.log(targets), reduction='none')
+        i_indices = allpairs[:, 0]
+        j_indices = allpairs[:, 1]
+        current_weights = self(i_indices, j_indices)
+        loss = weights_x * F.mse_loss(
+            current_weights, torch.log(targets), reduction='none')
         return torch.mean(loss).to(self.device)
 
 
@@ -72,23 +113,15 @@ class GloveSimple(pl.LightningModule):
             nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
-        if not self.train_cooccurrence:
-            self.emb_layer = nn.Embedding(self.num_embeddings, self.embedding_dim)
+        self.emb_layer = nn.Embedding(self.num_embeddings, self.embedding_dim)
+        if self.train_cooccurrence is not None:
+            self.glove_layer = GloveModule(
+                self.num_embeddings, self.embedding_dim,
+                self.train_cooccurrence, device=self.device)
         else:
-            self.emb_layer = GloveEmbedding(self.num_embeddings, self.embedding_dim,
-                                            self.train_cooccurrence, device=self.device)
+            self.glove_layer = None
         self.emb_layer.weight.data.uniform_(-1, 1)
-        # get rid of this
-        #self.linear_layer = nn.Linear(self.num_embeddings, self.embedding_dim)
-        # TODO:
-        # What is the intended output?
-        # Should it be that we feed in an index, and we get an embedding
-        # or is it that we look at the emb_layer.weight values?
 
-        #self.layer = nn.Sequential(
-        #    nn.Embedding(self.num_embeddings, self.embedding_dim),
-        #    nn.Linear(self.num_embeddings, self.embedding_dim)
-        #)
 
     def forward(self, indices):
         set_indices = (np.arange(len(indices)), indices)
@@ -107,11 +140,8 @@ class GloveSimple(pl.LightningModule):
         # the loss should be between the targets and the
         # embeddings for the items in this batch.
         loss = F.mse_loss(out, targets)
-
-        #self.manual_backward(loss, opt, retain_graph=True)
-        #self.manual_backward(loss, opt)
-        #opt.step()
-        #opt.zero_grad()
+        if self.glove_layer is not None:
+            loss += self.glove_layer.wmse_loss(indices)
         print(f"loss: {loss}")
         # 1. learn itself
         # 2. optimise 2 separate loss objectives - one is GloVe loss,
@@ -159,6 +189,7 @@ class GloveEmbeddingsDataset(Dataset):
 
 if __name__ == '__main__':
 
-    model = GloveSimple('glove_audio.pt', batch_size=100)#, limit=1000)
+    model = GloveSimple('glove_audio.pt', batch_size=100,
+                        train_cooccurrence_file='../audioset/co_occurrence_audio_all.pt')#, limit=1000)
     trainer = pl.Trainer(gpus=0, max_epochs=100, progress_bar_refresh_rate=20)
     trainer.fit(model)
