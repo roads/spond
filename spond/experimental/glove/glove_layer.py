@@ -15,10 +15,12 @@ from torch.utils.data import DataLoader, Dataset
 
 
 
-class GloveModule(nn.Module):
+class GloveLayer(nn.Module):
     def __init__(self, num_embeddings, embedding_dim, co_occurrence,
                  device='cpu', x_max=100, alpha=0.75):
-        super(GloveModule, self).__init__()
+        super(GloveLayer, self).__init__()
+        # All of these are needed because if we don't have them,
+        # can't calculate things of the right dimension.
         self.wi = nn.Embedding(num_embeddings, embedding_dim)
         self.wj = nn.Embedding(num_embeddings, embedding_dim)
         self.bi = nn.Embedding(num_embeddings, 1)
@@ -57,10 +59,12 @@ class GloveModule(nn.Module):
         # not sure what it should be replaced by here
         # "targets" are the log of the co-occurrence statistics.
         # need to make every pair of indices that exist in co-occurrence file
-        from itertools import combinations
         # Not every index will be represented in the co_occurrence matrix
         # To calculate glove loss, we will take all the pairs in the co-occurrence
         # that contain anything in the current set of indices.
+        # There is a disconnect between the indices that are passed in here,
+        # and the indices of all pairs in the co-occurrence matrix
+        # containing those indices.
         allindices = self.co_occurrence.indices()
         # The following is terrible, but figure it out once we get it working
         # Converting to numpy is very slow
@@ -86,6 +90,11 @@ class GloveModule(nn.Module):
         current_weights = self(i_indices, j_indices)
         loss = weights_x * F.mse_loss(
             current_weights, torch.log(targets), reduction='none')
+        # This is a feasible strategy for mapping indices -> pairs
+        # Second strategy: Loop over all possible pairs
+        # More computationally intensive
+        # Allow this to be configurable?
+        # Degrees of separation but only allow 1 or -1
         return torch.mean(loss).to(self.device)
 
 
@@ -93,7 +102,7 @@ class GloveSimple(pl.LightningModule):
 
     def __init__(self, train_embeddings_file, batch_size, limit=None,
                  train_cooccurrence_file=None):
-        # train_enbeddings_file: the filename contaning the pre-trained weights
+        # train_embeddings_file: the filename contaning the pre-trained weights
         # train_cooccurrence_file: the filename containing the co-occurrence statistics
         # that we want to match these embeddings to. If passed, a GloveEmbedding layer
         # will be used.
@@ -113,15 +122,15 @@ class GloveSimple(pl.LightningModule):
             nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
-        self.emb_layer = nn.Embedding(self.num_embeddings, self.embedding_dim)
         if self.train_cooccurrence is not None:
-            self.glove_layer = GloveModule(
+            self.glove_layer = GloveLayer(
                 self.num_embeddings, self.embedding_dim,
                 self.train_cooccurrence, device=self.device)
+            self.emb_layer = None
         else:
             self.glove_layer = None
-        self.emb_layer.weight.data.uniform_(-1, 1)
-
+            self.emb_layer = nn.Embedding(self.num_embeddings, self.embedding_dim)
+            self.emb_layer.weight.data.uniform_(-1, 1)
 
     def forward(self, indices):
         set_indices = (np.arange(len(indices)), indices)
@@ -136,18 +145,35 @@ class GloveSimple(pl.LightningModule):
         # input: indices of embedding
         # targets: target embeddings
         indices, targets = batch
-        out = self.emb_layer(indices)
-        # the loss should be between the targets and the
-        # embeddings for the items in this batch.
-        loss = F.mse_loss(out, targets)
+        # if self.emb_layer is not None:
+        #     out = self.emb_layer(indices)
+        #     loss = F.mse_loss(out, targets)
         if self.glove_layer is not None:
+            # Ideal outcome:
+            # Pytorch object that is substitutable with
+            # nn.Embedding
+            # Subclass of nn.Embedding
+            # but internally, we should give the option to use
+            # a co-occurrence matrix
+            weights = self.glove_layer.wi.weight + self.glove_layer.wj.weight
+            out = weights[indices]
+            loss = F.mse_loss(out, targets)
             loss += self.glove_layer.wmse_loss(indices)
+            # How would this be used:
+            # Take 2 domains with co-occurrence
+            # Figure out intersection
+            # Put these 2 layers into B-network
+            # 2 branches which will connect at the top
+            # Say we have L and R where L = openimages, R = something else
+            # Top layer will combine audioset and openimage
+            # and will be the "alignment layer"
+            # Will take collective set of all concepts in both domains
+            # The aligner layer will backpropagate down
+            # to the respective embedding layers
+
+
         print(f"loss: {loss}")
-        # 1. learn itself
-        # 2. optimise 2 separate loss objectives - one is GloVe loss,
-        #    which we will inject similar to regularisation mechanism
-        #    then w.r.t second loss to be specified by the user
-        # 3. We want a specific layer type
+
 
         return loss
 
