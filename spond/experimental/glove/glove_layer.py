@@ -14,8 +14,12 @@ from torch.utils.data import DataLoader, Dataset
 #device = setup_torch()
 
 
-
 class GloveLayer(nn.Module):
+    # At the moment, this does not extend nn.Embedding,
+    # because there are many methods of nn.Embedding that do not make sense
+    # for this, such as the ability to load from a pretrained set of
+    # weights. Other arguments like max_norm, sparse, and so on,
+    # also do not make sense for this.
     def __init__(self, num_embeddings, embedding_dim, co_occurrence,
                  device='cpu', x_max=100, alpha=0.75):
         super(GloveLayer, self).__init__()
@@ -36,7 +40,15 @@ class GloveLayer(nn.Module):
         self.x_max = x_max
         self.alpha = alpha
 
-    def forward(self, i_indices, j_indices):
+    @property
+    def weights(self):
+        return self.wi.weight + self.wj.weight
+
+    # implemented as such to be consistent with nn.Embeddings interface
+    def forward(self, indices):
+        return self.weights[indices]
+
+    def _update(self, i_indices, j_indices):
         w_i = self.wi(i_indices)
         w_j = self.wj(j_indices)
         b_i = self.bi(i_indices).squeeze()
@@ -45,13 +57,13 @@ class GloveLayer(nn.Module):
 
         return x
 
-    def weight_func(self, x):
+    def _loss_weights(self, x):
         # x: co_occurrence values
         wx = (x/self.x_max)**self.alpha
         wx = torch.min(wx, torch.ones_like(wx))
         return wx.to(self.device)
 
-    def wmse_loss(self, indices):
+    def loss(self, indices):
         # inputs are indexes, targets are actual embeddings
         # In the actual algorithm, "inputs" is the weight_func run on the
         # co-occurrence statistics.
@@ -84,10 +96,10 @@ class GloveLayer(nn.Module):
             self.co_occurrence[item[0]][item[1]]
             for item in allpairs
         ])
-        weights_x = self.weight_func(targets)
+        weights_x = self._loss_weights(targets)
         i_indices = allpairs[:, 0]
         j_indices = allpairs[:, 1]
-        current_weights = self(i_indices, j_indices)
+        current_weights = self._update(i_indices, j_indices)
         loss = weights_x * F.mse_loss(
             current_weights, torch.log(targets), reduction='none')
         # This is a feasible strategy for mapping indices -> pairs
@@ -100,18 +112,15 @@ class GloveLayer(nn.Module):
 
 class GloveSimple(pl.LightningModule):
 
-    def __init__(self, train_embeddings_file, batch_size, limit=None,
-                 train_cooccurrence_file=None):
+    def __init__(self, train_embeddings_file, batch_size, train_cooccurrence_file,
+                 limit=None):
         # train_embeddings_file: the filename contaning the pre-trained weights
         # train_cooccurrence_file: the filename containing the co-occurrence statistics
-        # that we want to match these embeddings to. If passed, a GloveEmbedding layer
-        # will be used.
+        # that we want to match these embeddings to.
         super(GloveSimple, self).__init__()
         self.limit = limit
         self.train_data = torch.load(train_embeddings_file)
-        self.train_cooccurrence = train_cooccurrence_file
-        if self.train_cooccurrence:
-            self.train_cooccurrence = torch.load(self.train_cooccurrence)
+        self.train_cooccurrence = torch.load(train_cooccurrence_file)
         self.batch_size = batch_size
         nemb, dim = self.train_data['wi.weight'].shape
         self.pretrained_embeddings = (
@@ -122,59 +131,38 @@ class GloveSimple(pl.LightningModule):
             nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
-        if self.train_cooccurrence is not None:
-            self.glove_layer = GloveLayer(
-                self.num_embeddings, self.embedding_dim,
-                self.train_cooccurrence, device=self.device)
-            self.emb_layer = None
-        else:
-            self.glove_layer = None
-            self.emb_layer = nn.Embedding(self.num_embeddings, self.embedding_dim)
-            self.emb_layer.weight.data.uniform_(-1, 1)
+        self.glove_layer = GloveLayer(
+        self.num_embeddings, self.embedding_dim,
+        self.train_cooccurrence, device=self.device)
 
     def forward(self, indices):
-        set_indices = (np.arange(len(indices)), indices)
-
-        batch = torch.zeros((len(indices), self.num_embeddings), dtype=int).to(self.device)
-
-        batch[set_indices] = 1
-        return self.emb_layer(batch)
+        return self.glove_layer(indices)
 
     def training_step(self, batch, batch_idx):
-        #opt = self.optimizers()
         # input: indices of embedding
         # targets: target embeddings
         indices, targets = batch
-        # if self.emb_layer is not None:
-        #     out = self.emb_layer(indices)
-        #     loss = F.mse_loss(out, targets)
-        if self.glove_layer is not None:
-            # Ideal outcome:
-            # Pytorch object that is substitutable with
-            # nn.Embedding
-            # Subclass of nn.Embedding
-            # but internally, we should give the option to use
-            # a co-occurrence matrix
-            weights = self.glove_layer.wi.weight + self.glove_layer.wj.weight
-            out = weights[indices]
-            loss = F.mse_loss(out, targets)
-            loss += self.glove_layer.wmse_loss(indices)
-            # How would this be used:
-            # Take 2 domains with co-occurrence
-            # Figure out intersection
-            # Put these 2 layers into B-network
-            # 2 branches which will connect at the top
-            # Say we have L and R where L = openimages, R = something else
-            # Top layer will combine audioset and openimage
-            # and will be the "alignment layer"
-            # Will take collective set of all concepts in both domains
-            # The aligner layer will backpropagate down
-            # to the respective embedding layers
-
-
+        # Ideal outcome:
+        # Pytorch object that is substitutable with
+        # nn.Embedding
+        # Subclass of nn.Embedding
+        # but internally, we should give the option to use
+        # a co-occurrence matrix
+        out = self.glove_layer.weights[indices]
+        loss = F.mse_loss(out, targets)
+        loss += self.glove_layer.loss(indices)
+        # How would this be used:
+        # Take 2 domains with co-occurrence
+        # Figure out intersection
+        # Put these 2 layers into B-network
+        # 2 branches which will connect at the top
+        # Say we have L and R where L = openimages, R = something else
+        # Top layer will combine audioset and openimage
+        # and will be the "alignment layer"
+        # Will take collective set of all concepts in both domains
+        # The aligner layer will backpropagate down
+        # to the respective embedding layers
         print(f"loss: {loss}")
-
-
         return loss
 
     def configure_optimizers(self):
