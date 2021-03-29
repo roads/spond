@@ -14,19 +14,41 @@ from torch.utils.data import DataLoader, Dataset
 #device = setup_torch()
 
 
-class GloveLayer(nn.Module):
+class GloveLayer(nn.Embedding):
     # At the moment, this does not extend nn.Embedding,
     # because there are many methods of nn.Embedding that do not make sense
     # for this, such as the ability to load from a pretrained set of
     # weights. Other arguments like max_norm, sparse, and so on,
     # also do not make sense for this.
+    # Work out what subset of features make sense and implement those
+    # Is there a way to express constraints on weights other than
+    # the nn.Functional.gradient_clipping ?
     def __init__(self, num_embeddings, embedding_dim, co_occurrence,
-                 device='cpu', x_max=100, alpha=0.75):
-        super(GloveLayer, self).__init__()
-        # All of these are needed because if we don't have them,
-        # can't calculate things of the right dimension.
-        self.wi = nn.Embedding(num_embeddings, embedding_dim)
-        self.wj = nn.Embedding(num_embeddings, embedding_dim)
+                 x_max=100, alpha=0.75, device='cpu',
+                 # nn.Embedding options go here
+                 padding_idx=None,
+                 scale_grad_by_freq=None,
+                 max_norm=None, norm_type=2,
+                 sparse=False   # not supported- just here to keep interface
+                 ):
+        # Not calling Embedding constructor, as this module is
+        # composed of Embeddings. 
+        nn.Module.__init__(self)
+        if sparse:
+            raise NotImplementedError("`sparse` is not implemented for this class")
+        # for the total weight to have a max norm of K, the embeddings
+        # that are summed to make them up need a max norm of K/2
+        used_norm = max_norm / 2 if max_norm else None
+        kws = {}
+        if used_norm:
+            kws['max_norm'] = used_norm
+            kws['norm_type'] = norm_type
+        if padding_idx:
+            kws['padding_idx'] = padding_idx
+        if scale_grad_by_freq is not None:
+            kws['scale_grad_by_freq'] = scale_grad_by_freq
+        self.wi = nn.Embedding(num_embeddings, embedding_dim, **kws)
+        self.wj = nn.Embedding(num_embeddings, embedding_dim, **kws)
         self.bi = nn.Embedding(num_embeddings, 1)
         self.bj = nn.Embedding(num_embeddings, 1)
 
@@ -107,7 +129,18 @@ class GloveLayer(nn.Module):
         # More computationally intensive
         # Allow this to be configurable?
         # Degrees of separation but only allow 1 or -1
+        # We may want to save this loss as an attribute on the layer object
+        # Does Lightning have a way of representing layer specific losses
+        # Define an interface by which we can return loss objects
+        # probably stick with self.losses = [loss]
+        # - a list - because then we can do +=
         return torch.mean(loss).to(self.device)
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        # eventually, load this from a .pt file that contains all the
+        # wi/wj/etc.
+        raise NotImplementedError('Not yet implemented')
 
 
 class GloveSimple(pl.LightningModule):
@@ -166,6 +199,7 @@ class GloveSimple(pl.LightningModule):
         return loss
 
     def configure_optimizers(self):
+        # Is there an equivalent configure_losses?
         #opt = optim.Adagrad(self.parameters(), lr=0.05)
         opt = optim.Adam(self.parameters(), lr=0.005)
         return opt
