@@ -32,7 +32,7 @@ class GloveLayer(nn.Embedding):
                  sparse=False   # not supported- just here to keep interface
                  ):
         # Not calling Embedding constructor, as this module is
-        # composed of Embeddings. 
+        # composed of Embeddings.
         nn.Module.__init__(self)
         if sparse:
             raise NotImplementedError("`sparse` is not implemented for this class")
@@ -58,9 +58,29 @@ class GloveLayer(nn.Embedding):
         self.bj.weight.data.zero_()
 
         self.co_occurrence = co_occurrence.coalesce()
+        # it is not very big
+        self.coo_dense = self.co_occurrence.to_dense()
         self.device = device
         self.x_max = x_max
         self.alpha = alpha
+        # Placeholder. In future, we will make an abstract base class
+        # which will have the below attribute so that all instances
+        # carry their own loss.
+        self.losses = []
+        self._setup_indices()
+
+    def _setup_indices(self):
+        # Do some preprocessing to make looking up indices faster.
+        # The co-occurrence matrix is a large array of pairs of indices
+        # In the course of training, we will be given a list of
+        # indices, and we need to find the pairs that are present.
+        self.allindices = self.co_occurrence.indices()
+        N = self.allindices.max() + 1
+        # Store a dense array of which pairs are active
+        # It is booleans so should be small even if there are a lot of tokens
+        self.allpairs = torch.zeros((N, N), dtype=bool)
+        self.allpairs[(self.allindices[0], self.allindices[1])] = True
+        self.N = N
 
     @property
     def weights(self):
@@ -99,28 +119,20 @@ class GloveLayer(nn.Embedding):
         # There is a disconnect between the indices that are passed in here,
         # and the indices of all pairs in the co-occurrence matrix
         # containing those indices.
-        allindices = self.co_occurrence.indices()
-        # The following is terrible, but figure it out once we get it working
-        # Converting to numpy is very slow
-        intersection = set(indices.numpy()).intersection(
-            set(allindices.unique().numpy()))
-        if not len(intersection):
-            return 0
-        intersection = np.array(list(intersection))
-        allpairs = torch.vstack([
-            allindices.t()[allindices[0] == index]
-            for index in intersection
-        ])
-        # cannot index into a sparse tensor with pairs
-        # so we have to find the indices of these pairs, and then
-        # find the values corresponding to those.
-        targets = torch.Tensor([
-            self.co_occurrence[item[0]][item[1]]
-            for item in allpairs
-        ])
+        indices = indices.sort()[0]
+        subset = self.allpairs[indices]
+        if not torch.any(subset):
+            self.losses = [0]
+            return self.losses
+        # now look up the indices of the existing pairs
+        # it is faster to do the indexing into an array of bools
+        # instead of the dense array
+        subset_indices = torch.nonzero(subset)
+        i_indices = indices[subset_indices[:, 0]]
+        j_indices = subset_indices[:, 1]
+
+        targets = self.coo_dense[(i_indices, j_indices)]
         weights_x = self._loss_weights(targets)
-        i_indices = allpairs[:, 0]
-        j_indices = allpairs[:, 1]
         current_weights = self._update(i_indices, j_indices)
         loss = weights_x * F.mse_loss(
             current_weights, torch.log(targets), reduction='none')
@@ -134,7 +146,9 @@ class GloveLayer(nn.Embedding):
         # Define an interface by which we can return loss objects
         # probably stick with self.losses = [loss]
         # - a list - because then we can do +=
-        return torch.mean(loss).to(self.device)
+        loss = torch.mean(loss).to(self.device)
+        self.losses = [loss]
+        return self.losses
 
     @classmethod
     def from_pretrained(cls, *args, **kwargs):
@@ -183,7 +197,11 @@ class GloveSimple(pl.LightningModule):
         # a co-occurrence matrix
         out = self.glove_layer.weights[indices]
         loss = F.mse_loss(out, targets)
-        loss += self.glove_layer.loss(indices)
+        glove_layer_loss = self.glove_layer.loss(indices)
+        try:
+            loss += glove_layer_loss[0]
+        except:
+            raise
         # How would this be used:
         # Take 2 domains with co-occurrence
         # Figure out intersection
