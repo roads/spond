@@ -198,10 +198,7 @@ class GloveSimple(pl.LightningModule):
         out = self.glove_layer.weights[indices]
         loss = F.mse_loss(out, targets)
         glove_layer_loss = self.glove_layer.loss(indices)
-        try:
-            loss += glove_layer_loss[0]
-        except:
-            raise
+        loss += glove_layer_loss[0]
         # How would this be used:
         # Take 2 domains with co-occurrence
         # Figure out intersection
