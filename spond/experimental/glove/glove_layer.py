@@ -1,7 +1,4 @@
 # Test bed for Glove loss
-
-
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -9,22 +6,12 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from torch.utils.data import DataLoader, Dataset
 
-#from utils import setup_torch
-
-#device = setup_torch()
-
 
 class GloveLayer(nn.Embedding):
-    # At the moment, this does not extend nn.Embedding,
-    # because there are many methods of nn.Embedding that do not make sense
-    # for this, such as the ability to load from a pretrained set of
-    # weights. Other arguments like max_norm, sparse, and so on,
-    # also do not make sense for this.
-    # Work out what subset of features make sense and implement those
-    # Is there a way to express constraints on weights other than
+    # TODO: Is there a way to express constraints on weights other than
     # the nn.Functional.gradient_clipping ?
     def __init__(self, num_embeddings, embedding_dim, co_occurrence,
-                 x_max=100, alpha=0.75, device='cpu',
+                 x_max=100, alpha=0.75,
                  # nn.Embedding options go here
                  padding_idx=None,
                  scale_grad_by_freq=None,
@@ -32,8 +19,11 @@ class GloveLayer(nn.Embedding):
                  sparse=False   # not supported- just here to keep interface
                  ):
         # Not calling Embedding constructor, as this module is
-        # composed of Embeddings.
-        nn.Module.__init__(self)
+        # composed of Embeddings. However we have to set some attributes
+        nn.Embedding.__init__(self, num_embeddings, embedding_dim,
+                              padding_idx=None, max_norm=None,
+                              norm_type=2.0, scale_grad_by_freq=False,
+                              sparse=False, _weight=None)
         if sparse:
             raise NotImplementedError("`sparse` is not implemented for this class")
         # for the total weight to have a max norm of K, the embeddings
@@ -56,11 +46,9 @@ class GloveLayer(nn.Embedding):
         self.wj.weight.data.uniform_(-1, 1)
         self.bi.weight.data.zero_()
         self.bj.weight.data.zero_()
-
         self.co_occurrence = co_occurrence.coalesce()
         # it is not very big
         self.coo_dense = self.co_occurrence.to_dense()
-        self.device = device
         self.x_max = x_max
         self.alpha = alpha
         # Placeholder. In future, we will make an abstract base class
@@ -68,6 +56,8 @@ class GloveLayer(nn.Embedding):
         # carry their own loss.
         self.losses = []
         self._setup_indices()
+        # This can only be set up later after the trainer has initialised
+        self.device = None
 
     def _setup_indices(self):
         # Do some preprocessing to make looking up indices faster.
@@ -81,6 +71,16 @@ class GloveLayer(nn.Embedding):
         self.allpairs = torch.zeros((N, N), dtype=bool)
         self.allpairs[(self.allindices[0], self.allindices[1])] = True
         self.N = N
+
+    def _set_device(self, device):
+        self.device = device
+        self.wi = self.wi.to(device)
+        self.wj = self.wj.to(device)
+        self.bi = self.bi.to(device)
+        self.bj = self.bj.to(device)
+        self.co_occurrence = self.co_occurrence.to(device)
+        self.coo_dense = self.coo_dense.to(device)
+        self.allpairs = self.allpairs.to(device)
 
     @property
     def weights(self):
@@ -103,7 +103,7 @@ class GloveLayer(nn.Embedding):
         # x: co_occurrence values
         wx = (x/self.x_max)**self.alpha
         wx = torch.min(wx, torch.ones_like(wx))
-        return wx.to(self.device)
+        return wx
 
     def loss(self, indices):
         # inputs are indexes, targets are actual embeddings
@@ -119,6 +119,7 @@ class GloveLayer(nn.Embedding):
         # There is a disconnect between the indices that are passed in here,
         # and the indices of all pairs in the co-occurrence matrix
         # containing those indices.
+        indices = indices
         indices = indices.sort()[0]
         subset = self.allpairs[indices]
         if not torch.any(subset):
@@ -131,6 +132,9 @@ class GloveLayer(nn.Embedding):
         i_indices = indices[subset_indices[:, 0]]
         j_indices = subset_indices[:, 1]
 
+        i_indices = i_indices
+        j_indices = j_indices
+
         targets = self.coo_dense[(i_indices, j_indices)]
         weights_x = self._loss_weights(targets)
         current_weights = self._update(i_indices, j_indices)
@@ -141,12 +145,14 @@ class GloveLayer(nn.Embedding):
         # More computationally intensive
         # Allow this to be configurable?
         # Degrees of separation but only allow 1 or -1
+        # -1 is use all indices
+        # 1 is use indices
         # We may want to save this loss as an attribute on the layer object
         # Does Lightning have a way of representing layer specific losses
         # Define an interface by which we can return loss objects
         # probably stick with self.losses = [loss]
         # - a list - because then we can do +=
-        loss = torch.mean(loss).to(self.device)
+        loss = torch.mean(loss)
         self.losses = [loss]
         return self.losses
 
@@ -178,14 +184,21 @@ class GloveSimple(pl.LightningModule):
             nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
+        # Need to call _set_device later.
+        # We cannot create the GloveLayer later, because then some initialisation
+        # doesn't happen and the optimiser will blow up.
         self.glove_layer = GloveLayer(
-        self.num_embeddings, self.embedding_dim,
-        self.train_cooccurrence, device=self.device)
+            self.num_embeddings, self.embedding_dim,
+            self.train_cooccurrence)
 
     def forward(self, indices):
         return self.glove_layer(indices)
 
     def training_step(self, batch, batch_idx):
+        # if this isn't done explicitly it somehow never gets set automatically
+        # by lightning
+        if self.glove_layer.device is None:
+            self.glove_layer._set_device(self.device)
         # input: indices of embedding
         # targets: target embeddings
         indices, targets = batch
@@ -215,28 +228,28 @@ class GloveSimple(pl.LightningModule):
 
     def configure_optimizers(self):
         # Is there an equivalent configure_losses?
-        #opt = optim.Adagrad(self.parameters(), lr=0.05)
         opt = optim.Adam(self.parameters(), lr=0.005)
         return opt
 
     def train_dataloader(self):
-        dataset = GloveEmbeddingsDataset(self.train_data, self.limit, self.device)
+        dataset = GloveEmbeddingsDataset(self.train_data, self.limit)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
 
 class GloveEmbeddingsDataset(Dataset):
     # Dataset for existing embedings
 
-    def __init__(self, data, limit=None, device='cpu'):
+    def __init__(self, data, limit=None):
         # train_data contains wi.weight / wj.weight / bi.weight / bj.weight
         # for stability, the target is the wi + wj
         self.weights = data['wi.weight'] + data['wj.weight']
         if limit:
             self.weights = self.weights[:limit]
         nemb, dim = self.weights.shape
-        self.device = device
-        self.x = torch.arange(nemb).to(self.device)
-        self.y = self.weights.to(self.device)
+        # The dataset does not appear to need to be moved to GPU.
+        # Lightning takes care of that
+        self.x = torch.arange(nemb)
+        self.y = self.weights
         self.N = nemb
 
     def __len__(self):
@@ -251,8 +264,58 @@ class GloveEmbeddingsDataset(Dataset):
 
 
 if __name__ == '__main__':
+    # change to gpus=1 to use GPU. Otherwise CPU will be used
+    trainer = pl.Trainer(gpus=1, max_epochs=100, progress_bar_refresh_rate=20)
+    # Trainer must be created before model, because we need to detect
+    # what we requested for GPU.
 
     model = GloveSimple('glove_audio.pt', batch_size=100,
-                        train_cooccurrence_file='../audioset/co_occurrence_audio_all.pt')#, limit=1000)
-    trainer = pl.Trainer(gpus=0, max_epochs=100, progress_bar_refresh_rate=20)
+                        train_cooccurrence_file='../audioset/co_occurrence_audio_all.pt')
     trainer.fit(model)
+
+
+
+"""
+Probabilistic layer
+
+Take all free parameters
+for Glove, 2 sets of weights and 2 sets of biases and these are point estimates.
+Convert all of these into distributions
+Easiest distribution to use is Gaussian
+1D Gaussian for every point, have location and scale. 
+Easiest - diagonal covariance
+Instead of estimating just the weight directly, estimate the 2 params
+for each weight. 
+Give index and sample from distribution for that index. 
+Have to backpropagate "through the Gaussian"
+by reparametrisation: any Gaussian can be expressed as normal Gaussian + shift.
+psiz.keras.layers.embeddings/normal_diga.py
+
+Do we represent as ND Gaussian or N 1D Gaussians? 
+It depends on internal details- because we are assuming diagonal covariance. 
+But for flexibility we should use ND Gaussian if we want to use non-diagional
+covariance at some point
+
+During training: Don't need to do anything other than set up the distribution
+and sample.
+Scale (mean) must be positive, so specify the scale in transform space 
+-inf to +inf and transform it using softplus - 
+need to avoid underflow and overflow
+
+Intended output: N by D distributions, N = number of concepts, D = number of dimensions
+All embeddings are independent of each other
+
+Do we want one distribution for weights (wi+wj) or for each of wi and wj?
+
+Maybe we only need wi and not wi+wj. 
+
+How would we test this-
+1. Run 2 versions of glove and use TSNE to see how the output clusters
+2. Look at the loss- is the loss lower when we have single weight matrix
+   or when we have double weight matrix.
+   
+   
+TODO:
+1. Add setting for double weight matrix
+2. Test on UCL GPU
+"""
