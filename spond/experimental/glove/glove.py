@@ -67,9 +67,8 @@ def train(model, dataset, n_epochs, batch_size, x_max=100, alpha=0.75,
             outputs = model(i_idx, j_idx)
             weights_x = weight_func(x_ij, x_max, alpha)
             loss = wmse_loss(weights_x, outputs, torch.log(x_ij))
-            optimizer.step()
             loss.backward()
-
+            optimizer.step()
             l = loss.item()
             loss_values.append(l)
 
