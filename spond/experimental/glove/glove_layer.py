@@ -11,7 +11,11 @@ class GloveLayer(nn.Embedding):
     # TODO: Is there a way to express constraints on weights other than
     # the nn.Functional.gradient_clipping ?
     def __init__(self, num_embeddings, embedding_dim, co_occurrence,
+                 # glove learning options
                  x_max=100, alpha=0.75,
+                 # whether or not to use the wi and wj
+                 # if set to False, will use only wi
+                 double=False,
                  # nn.Embedding options go here
                  padding_idx=None,
                  scale_grad_by_freq=None,
@@ -37,15 +41,19 @@ class GloveLayer(nn.Embedding):
             kws['padding_idx'] = padding_idx
         if scale_grad_by_freq is not None:
             kws['scale_grad_by_freq'] = scale_grad_by_freq
+        self.double = double
         self.wi = nn.Embedding(num_embeddings, embedding_dim, **kws)
-        self.wj = nn.Embedding(num_embeddings, embedding_dim, **kws)
         self.bi = nn.Embedding(num_embeddings, 1)
-        self.bj = nn.Embedding(num_embeddings, 1)
-
         self.wi.weight.data.uniform_(-1, 1)
-        self.wj.weight.data.uniform_(-1, 1)
         self.bi.weight.data.zero_()
-        self.bj.weight.data.zero_()
+
+        if self.double:
+            self.wj = nn.Embedding(num_embeddings, embedding_dim, **kws)
+            self.bj = nn.Embedding(num_embeddings, 1)
+
+            self.bj.weight.data.zero_()
+            self.wj.weight.data.uniform_(-1, 1)
+
         self.co_occurrence = co_occurrence.coalesce()
         # it is not very big
         self.coo_dense = self.co_occurrence.to_dense()
@@ -75,16 +83,19 @@ class GloveLayer(nn.Embedding):
     def _set_device(self, device):
         self.device = device
         self.wi = self.wi.to(device)
-        self.wj = self.wj.to(device)
         self.bi = self.bi.to(device)
-        self.bj = self.bj.to(device)
+        if self.double:
+            self.wj = self.wj.to(device)
+            self.bj = self.bj.to(device)
         self.co_occurrence = self.co_occurrence.to(device)
         self.coo_dense = self.coo_dense.to(device)
         self.allpairs = self.allpairs.to(device)
 
     @property
     def weights(self):
-        return self.wi.weight + self.wj.weight
+        if self.double:
+            return self.wi.weight + self.wj.weight
+        return self.wi.weight
 
     # implemented as such to be consistent with nn.Embeddings interface
     def forward(self, indices):
@@ -92,11 +103,13 @@ class GloveLayer(nn.Embedding):
 
     def _update(self, i_indices, j_indices):
         w_i = self.wi(i_indices)
-        w_j = self.wj(j_indices)
         b_i = self.bi(i_indices).squeeze()
-        b_j = self.bj(j_indices).squeeze()
-        x = torch.sum(w_i * w_j, dim=1) + b_i + b_j
-
+        if self.double:
+            w_j = self.wj(j_indices)
+            b_j = self.bj(j_indices).squeeze()
+            x = torch.sum(w_i * w_j, dim=1) + b_i + b_j
+        else:
+            x = torch.sum(w_i, dim=1) + b_i
         return x
 
     def _loss_weights(self, x):
@@ -265,7 +278,7 @@ class GloveEmbeddingsDataset(Dataset):
 
 if __name__ == '__main__':
     # change to gpus=1 to use GPU. Otherwise CPU will be used
-    trainer = pl.Trainer(gpus=1, max_epochs=100, progress_bar_refresh_rate=20)
+    trainer = pl.Trainer(gpus=0, max_epochs=100, progress_bar_refresh_rate=20)
     # Trainer must be created before model, because we need to detect
     # what we requested for GPU.
 
