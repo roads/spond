@@ -132,3 +132,6 @@ dmypy.json
 .vscode/
 
 TODO.md
+
+# lightning logs
+lightning_logs
