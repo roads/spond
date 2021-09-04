@@ -132,7 +132,7 @@ class GloveLayer(nn.Embedding):
         # There is a disconnect between the indices that are passed in here,
         # and the indices of all pairs in the co-occurrence matrix
         # containing those indices.
-        indices = indices
+        #indices = indices
         indices = indices.sort()[0]
         subset = self.allpairs[indices]
         if not torch.any(subset):
@@ -178,21 +178,38 @@ class GloveLayer(nn.Embedding):
 
 class GloveSimple(pl.LightningModule):
 
-    def __init__(self, train_embeddings_file, batch_size, train_cooccurrence_file,
+    def __init__(self, batch_size, train_cooccurrence_file,
+                 # If set to None, MSE loss with pretrained embeddings
+                 # will not be used
+                 train_embeddings_file=None,
+                 # but if it is not passed, then nconcepts must be set
+                 nconcepts=None,
+                 # and dimension
+                 dim=None,
                  limit=None):
         # train_embeddings_file: the filename contaning the pre-trained weights
         # train_cooccurrence_file: the filename containing the co-occurrence statistics
         # that we want to match these embeddings to.
         super(GloveSimple, self).__init__()
         self.limit = limit
-        self.train_data = torch.load(train_embeddings_file)
-        self.train_cooccurrence = torch.load(train_cooccurrence_file)
+        self.train_embeddings_file = train_embeddings_file
+        if train_embeddings_file is not None:
+            self.train_data = torch.load(train_embeddings_file, map_location=torch.device('cpu'))
+        else:
+            self.train_data = None
+        self.train_cooccurrence = torch.load(train_cooccurrence_file, map_location=torch.device('cpu'))
         self.batch_size = batch_size
-        nemb, dim = self.train_data['wi.weight'].shape
-        self.pretrained_embeddings = (
-            self.train_data['wi.weight'] +
-            self.train_data['wj.weight']
-        )
+        if self.train_data is not None:
+            nemb, dim = self.train_data['wi.weight'].shape
+            self.pretrained_embeddings = (
+                    self.train_data['wi.weight'] +
+                    self.train_data['wj.weight']
+            )
+        else:
+            assert nconcepts is not None, "If no training data is specified, nconcepts must be passed"
+            assert dim is not None, "If no training data is specified, dim must be passed"
+            nemb = nconcepts
+            self.pretrained_embeddings = None
         if limit:
             nemb = limit
         self.num_embeddings = nemb
@@ -222,7 +239,10 @@ class GloveSimple(pl.LightningModule):
         # but internally, we should give the option to use
         # a co-occurrence matrix
         out = self.glove_layer.weights[indices]
-        loss = F.mse_loss(out, targets)
+        if self.train_data is not None:
+            loss = F.mse_loss(out, targets)
+        else:
+            loss = 0
         glove_layer_loss = self.glove_layer.loss(indices)
         loss += glove_layer_loss[0]
         # How would this be used:
@@ -231,7 +251,7 @@ class GloveSimple(pl.LightningModule):
         # Put these 2 layers into B-network
         # 2 branches which will connect at the top
         # Say we have L and R where L = openimages, R = something else
-        # Top layer will combine audioset and openimage
+        # Top layer will combine audioset and openimages
         # and will be the "alignment layer"
         # Will take collective set of all concepts in both domains
         # The aligner layer will backpropagate down
@@ -241,29 +261,37 @@ class GloveSimple(pl.LightningModule):
 
     def configure_optimizers(self):
         # Is there an equivalent configure_losses?
-        opt = optim.Adam(self.parameters(), lr=0.005)
+        #opt = optim.Adam(self.parameters(), lr=0.005)
+        opt = optim.Adagrad(self.parameters(), lr=0.05)
         return opt
 
     def train_dataloader(self):
-        dataset = GloveEmbeddingsDataset(self.train_data, self.limit)
+        dataset = GloveEmbeddingsDataset(self.train_data, self.limit,
+                                         self.num_embeddings)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
 
 class GloveEmbeddingsDataset(Dataset):
-    # Dataset for existing embedings
+    # Dataset for existing embeddings
 
-    def __init__(self, data, limit=None):
-        # train_data contains wi.weight / wj.weight / bi.weight / bj.weight
-        # for stability, the target is the wi + wj
-        self.weights = data['wi.weight'] + data['wj.weight']
-        if limit:
-            self.weights = self.weights[:limit]
-        nemb, dim = self.weights.shape
+    def __init__(self, data, limit=None, num_embeddings=None):
+        # This is only needed if we are training against existing embeddings
+        # otherwise, we just return a set of indices into the coocurrence matrix
+        # for which we only need embedding dimension
+        if data is not None:
+            # train_data contains wi.weight / wj.weight / bi.weight / bj.weight
+            # for stability, the target is the wi + wj
+            self.weights = data['wi.weight'] + data['wj.weight']
+            if limit:
+                self.weights = self.weights[:limit]
+            num_embeddings, embedding_dim = self.weights.shape
+        else:
+            self.weights = None
         # The dataset does not appear to need to be moved to GPU.
         # Lightning takes care of that
-        self.x = torch.arange(nemb)
+        self.x = torch.arange(num_embeddings)
         self.y = self.weights
-        self.N = nemb
+        self.N = num_embeddings
 
     def __len__(self):
         return self.N
@@ -272,17 +300,25 @@ class GloveEmbeddingsDataset(Dataset):
         if torch.is_tensor(idx):
             idx = idx.tolist()
         x = self.x[idx]
-        y = self.y[idx]
+        if self.y is not None:
+            y = self.y[idx]
+        else:
+            # it won't be used
+            y = torch.tensor([])
         return x, y
 
 
 if __name__ == '__main__':
     # change to gpus=1 to use GPU. Otherwise CPU will be used
-    trainer = pl.Trainer(gpus=0, max_epochs=100, progress_bar_refresh_rate=20)
+    trainer = pl.Trainer(gpus=0, max_epochs=1000, progress_bar_refresh_rate=20)
     # Trainer must be created before model, because we need to detect
     # what we requested for GPU.
-
-    model = GloveSimple('glove_audio.pt', batch_size=100,
+    train_embeddings_file = '../audioset/glove_audioset.pt'
+    train_data = torch.load(train_embeddings_file, map_location=torch.device('cpu'))
+    nemb, dim = train_data['wi.weight'].shape
+    model = GloveSimple(batch_size=100,
+                        #train_embeddings_file='../audioset/glove_audioset.pt',
+                        nconcepts=nemb, dim=dim,
                         train_cooccurrence_file='../audioset/co_occurrence_audio_all.pt')
     trainer.fit(model)
 
