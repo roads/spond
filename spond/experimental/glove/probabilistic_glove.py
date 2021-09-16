@@ -185,7 +185,7 @@ class ProbabilisticGloveLayer(nn.Embedding):
             return wi.squeeze()
         else:
             return wi
-        
+
 
     # implemented as such to be consistent with nn.Embeddings interface
     def forward(self, indices):
@@ -436,7 +436,7 @@ class ProbabilisticGlove(pl.LightningModule):
         opt = optim.Adam(self.parameters(), lr=0.01)
         return opt
 
-    def train_dataloader(self): 
+    def train_dataloader(self):
         train_data = self.train_data if self.use_pretrained else None
         dataset = GloveEmbeddingsDataset(train_data, self.limit, self.num_embeddings)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
@@ -467,13 +467,14 @@ class Similarity:
         model = self.clsobj.load(filename)
         return model
 
-    def means(self, kernel, outfile, mode='a', mask=None):
+    def sim_means(self, kernel, outfile, mode='a', mask=None):
         # kernel: callable that takes 2 arrays and returns similarity matrix
         # outfile: target file name
         # mask: if passed, should be a sequence of integers for which the
         # similarity will be calculated. It is up to the user to keep track
         # of what the final output indices mean.
-        # Similarity will be calculated for each seed and stored in `outfile`
+        # Similarity will be calculated for each seed using the specified metric
+        # and stored in `outfile`
         store = pd.HDFStore(outfile, mode=mode)
         for seed in self.seedvalues:
             model = self._load(seed)
@@ -489,58 +490,56 @@ if __name__ == '__main__':
     import kernels
     import gc
     import sys
-    if True:
-        from spond.experimental.openimages.readfile import readlabels
+    from spond.experimental.openimages.readfile import readlabels
 
-        #tag = 'openimages'
-        #input_embeddings = 'glove_imgs.pt'
-        #co_occurrence = 'co_occurrence.pt'
-        tag = 'audioset'
+    tag = 'openimages'  # or 'audioset'
+
+    if tag == 'openimages':
+        input_embeddings = 'glove_imgs.pt'
+        co_occurrence = 'co_occurrence.pt'
+    else:
         input_embeddings = 'glove_audio.pt'
         co_occurrence = 'co_occurrence_audio_all.pt'
 
-        seeds = (1, 
-                 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        if tag == 'openimages':
-            max_epochs = 250
-        else:
-            max_epochs = 2000
-        #seeds = (8, 9, 10)
-        for seed in seeds:
-            continue
-            # change to gpus=1 to use GPU. Otherwise CPU will be used
-            # needs to be higher for audioset.
-            trainer = pl.Trainer(gpus=int(gpu), max_epochs=max_epochs, progress_bar_refresh_rate=20)
-            # Trainer must be created before model, because we need to detect
-            # what we requested for GPU.
-            model = ProbabilisticGlove(os.path.join(datapath, tag, input_embeddings),
-                                       use_pretrained=False,
-                                       batch_size=500,
-                                       seed=seed,
-                                       train_cooccurrence_file=os.path.join(datapath, tag, co_occurrence)
-            )
+    seeds = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    if tag == 'openimages':
+        max_epochs = 250
+    else:
+        max_epochs = 2000
+    for seed in seeds:
+        # change to gpus=1 to use GPU. Otherwise CPU will be used
+        # needs to be higher for audioset.
+        trainer = pl.Trainer(gpus=int(gpu), max_epochs=max_epochs, progress_bar_refresh_rate=20)
+        # Trainer must be created before model, because we need to detect
+        # what we requested for GPU.
+        model = ProbabilisticGlove(os.path.join(datapath, tag, input_embeddings),
+                                   use_pretrained=False,
+                                   batch_size=500,
+                                   seed=seed,
+                                   train_cooccurrence_file=os.path.join(datapath, tag, co_occurrence)
+        )
 
-            trainer.fit(model)
-            outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', tag)
-            clsname = model.__class__.__name__
-            outdir = os.path.join(outdir, clsname)
-            if not os.path.exists(outdir):
-                os.makedirs(outdir)
-            outfile = os.path.join(outdir, f'{tag}_{clsname}_{seed}.pt')
-            model.save(outfile)
-            del model
-            del trainer
-            print(f"finished seed {seed}")
-            torch.cuda.empty_cache()
-            gc.collect()
-        if tag == 'openimages':
-            labelsfn = os.path.join(datapath, tag, 'oidv6-class-descriptions.csv')
-        else:
-            labelsfn = os.path.join(datapath, tag, 'class_labels.csv')
-        labels, names = readlabels(labelsfn, rootdir=None)
-        #tag = 'audioset'
-        dirname = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), 'results', tag)
-        sim = Similarity(dirname, ProbabilisticGlove, seedvalues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), tag=tag)
-        #sim.means(kernels.dot, os.path.join(dirname, 'ProbabilisticGlove', f'{tag}_means_dot.hdf5'), mask=None, mode='w')
-        sim.means(kernels.cosine, os.path.join(dirname, 'ProbabilisticGlove', f'{tag}_means_cosine.hdf5'), mask=None, mode='w')
+        trainer.fit(model)
+        outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', tag)
+        clsname = model.__class__.__name__
+        outdir = os.path.join(outdir, clsname)
+        if not os.path.exists(outdir):
+            os.makedirs(outdir)
+        outfile = os.path.join(outdir, f'{tag}_{clsname}_{seed}.pt')
+        model.save(outfile)
+        del model
+        del trainer
+        print(f"finished seed {seed}")
+        torch.cuda.empty_cache()
+        gc.collect()
+    if tag == 'openimages':
+        labelsfn = os.path.join(datapath, tag, 'oidv6-class-descriptions.csv')
+    else:
+        labelsfn = os.path.join(datapath, tag, 'class_labels.csv')
+    labels, names = readlabels(labelsfn, rootdir=None)
+    dirname = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), 'results', tag)
+    sim = Similarity(dirname, ProbabilisticGlove, seedvalues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), tag=tag)
+    # The dot product similarity of the learned means will be saved in the file {tag}_means_dot
+    sim.sim_means(kernels.dot, os.path.join(dirname, 'ProbabilisticGlove', f'{tag}_means_dot.hdf5'), mask=None, mode='w')
+    #sim.sim_means(kernels.cosine, os.path.join(dirname, 'ProbabilisticGlove', f'{tag}_means_cosine.hdf5'), mask=None, mode='w')

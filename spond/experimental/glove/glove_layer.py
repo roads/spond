@@ -1,4 +1,4 @@
-# Test bed for Glove loss
+# The GloveLayer in this module can act as a component for other nn.Modules.
 import torch
 import torch.nn as nn
 import torch.optim as optim

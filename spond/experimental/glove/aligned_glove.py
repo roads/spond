@@ -35,67 +35,7 @@ import ot
 HIDDEN = 100
 
 
-def spearmanr(pred, target, **kw):
-    # build and install from https://github.com/teddykoker/torchsort
-    # Must have cuda 11.2 toolkit installed- not just the cuda 11.2 driver
-    # otherwise the nvcc used will be wrong and will crash when on GPU
-    import torchsort
-    pred = torchsort.soft_rank(pred, **kw)
-    target = torchsort.soft_rank(target, **kw)
-    pred = pred - pred.mean()
-    pred = pred / pred.norm()
-    target = target - target.mean()
-    target = target / target.norm()
-    return (pred * target).sum()
-
-
-def mapped_spearman_loss(pred, target, device='cpu'):
-    dist = torch.cdist(pred, target, compute_mode="donot_use_mm_for_euclid_dist").to(device)
-    values, nn_inds = dist.topk(1, dim=1, largest=False)
-    v = values.squeeze(dim=1)
-    ranks = (v * nn_inds.squeeze(dim=1)) / v
-    target_ranks = torch.arange(nn_inds.size()[0])
-    # we want a value that is low when spearman is high
-    spr = spearmanr(ranks.unsqueeze(dim=0), target_ranks.unsqueeze(dim=0))
-    # will be 0 if spr is 1, positive number otherwise
-    loss = np.e - torch.exp(spr)
-    return loss
-
-
-def torch_mapping_misclassified_1nn(mapped, target, indexes,
-                                    device='cpu'): #f_x, y):
-    # mapped: mapped original embeddings, approximations of the target
-    # target: actual target embedding
-    # indexes: indexes describing which embeddings should be checked for correspondence.
-    #          Must be a sequence of pairs.
-    #          If indexes is [[2, 1], [3, 5], [6, 77]]
-    #          that means that mapped[2] should have the nearest neighbour target[1]
-    #          mapped[3] should have nearest neighbour target[5], and so on.
-    #          meaning if indexes 2, 3, 6 are passed, we should check
-    #          if the nearest neighbours of mapped[2, 3, 6] are
-    #          target[2, 3, 6].
-
-    # equivalent of mapping_accuracy but implemented in torch,
-    # and only for 1nn. Returns the misclassification rather than accuracy
-    # because we want to pass this to the optimiser for minimisation.
-    # again, weird compute mode is needed because without it,
-    # distance from an item to itself is not 0.
-    src_indexes = indexes[:, 0]
-    target_indexes = indexes[:, 1]
-    dist = torch.cdist(mapped[src_indexes], target, compute_mode="donot_use_mm_for_euclid_dist").to(device)
-    values, nn_inds = dist.topk(1, dim=1, largest=False)
-    # we need to do something sneaky to count the mismatches.
-    # If we just sum the mismatches, there is no backpropagation.
-    # Therefore, we have to do something to force the f_x and y to be
-    # involved in the calculation
-    nn_inds = nn_inds.squeeze(dim=1)
-    mismatches = nn_inds != torch.tensor(target_indexes).to(device)
-    included = values.squeeze(dim=1)[mismatches]
-    # trying a lot of things to basically end up with the number of items
-    # that are mismatched.
-    count = torch.ceil(included) - torch.floor(included)
-    loss = count.sum() / len(indexes)
-    return loss
+# Various currently unused loss functions that were tried
 
 
 def energy_loss(mapped, target, device='cpu'):
@@ -150,28 +90,6 @@ def knn_loss(mapped, target, device='cpu', alpha=0.01, k=1):
     return loss.to(device)
 
 
-def mmd_loss(mapped, target, device='cpu', alpha=2, tag=""):
-    nx = mapped.shape[0]
-    ny = target.shape[0]
-    mmd = sd.MMDStatistic(nx, ny)
-    # try auto-calculating alpha
-    #if alpha is None:
-    #    allitems = torch.vstack([mapped, target]).to(device)
-    #    dist = torch.cdist(allitems, allitems,  compute_mode="donot_use_mm_for_euclid_dist")
-    #    median = torch.median(dist)
-    #    alpha = 1/(2*median**2)
-    #    alpha = alpha.item()
-    #    print(f"{tag}:alpha={alpha}")
-
-    # empirical MMD can go negative, this is apparently normal
-    # We actually may need different alpha for f(x) vs g(y) mappings.
-    #loss = mmd(mapped, target, [alpha])
-    if alpha is None:
-        alphas = None
-    else:
-        alphas = [alpha]
-    loss = mmd(mapped, target, alphas)
-    return loss
 
 
 def ot_loss(mapped, target, device='cpu'):
@@ -216,41 +134,13 @@ def procwass_loss(mapped, target, R, device='cpu', reg=0.025):
     return loss
 
 
-def procrustes(X_src, Y_tgt):
-    #import pdb
-    #pdb.set_trace()
-    U, s, V = torch.linalg.svd(torch.mm(Y_tgt.T, X_src))
-    return torch.mm(U, V)
-
-
-def sqrt_eig(x):
-    U, s, VT = torch.linalg.svd(x, full_matrices=False)
-    return torch.dot(U, torch.dot(torch.diag(torch.sqrt(s)), VT))
-
-
-def convex_init(X, Y, niter=100, reg=0.05, apply_sqrt=False, device='cpu'):
-    with torch.no_grad():
-        n, d = X.shape
-        if apply_sqrt:
-            X, Y = sqrt_eig(X), sqrt_eig(Y)
-        K_X, K_Y = torch.mm(X, X.T), torch.mm(Y, Y.T)
-        K_Y *= torch.linalg.norm(K_X) / torch.linalg.norm(K_Y)
-        K2_X, K2_Y = torch.mm(K_X, K_X), torch.mm(K_Y, K_Y)
-        P = torch.ones([n, n]).to(device) / float(n)
-        onesn = torch.ones(n).to(device)
-        for it in range(1, niter + 1):
-            G = (
-                    torch.mm(P, K2_X) +
-                    torch.mm(K2_Y, P) -
-                    2 * torch.mm(K_Y, torch.mm(P, K_X))
-            )
-            sh = ot.sinkhorn(onesn, onesn, G, reg, stopThr=1e-3)
-            alpha = 2.0 / float(2.0 + it)
-            P = alpha * sh + (1.0 - alpha) * P
-        obj = torch.linalg.norm(
-            torch.mm(P, K_X) - torch.mm(K_Y, P))
-        print(obj)
-        return procrustes(torch.mm(P, X), Y).T
+def mmd_loss(mapped, target, device='cpu', alpha=2):
+    nx = mapped.shape[0]
+    ny = target.shape[0]
+    mmd = sd.MMDStatistic(nx, ny)
+    alphas = [alpha]
+    loss = mmd(mapped, target, alphas)
+    return loss
 
 
 class AlignedGloveLayer(nn.Module):
@@ -366,13 +256,13 @@ class AlignedGloveLayer(nn.Module):
         losses['cycle_x'] = cycle_gy_loss
 
         # other cycle loss: |f(g(x)) - x|
-        if self.mse_cycle_loss:
+        if self.mse_cycle_loss:   # This was used by the MAGAN implementation
             cycle_fx_loss = torch.einsum('ij,ij->i', fx_diff, fx_diff).mean() #sum()
         else:
             cycle_fx_loss = torch.sqrt(torch.einsum('ij,ij->i', fx_diff, fx_diff)).mean() #sum()
         losses['cycle_y'] = cycle_fx_loss
         # For concepts that exist in both domains:
-        # The intersection will always be trained for  supervised loss.
+        # The intersection will always be trained for supervised loss.
         # This code relies heavily on the fact that the index_map is small,
         # therefore using numpy operations is fast.
         x_intersect = self.index_map[:, 0]
@@ -405,21 +295,25 @@ class AlignedGloveLayer(nn.Module):
             sup_diff_x = sup_diff_x.reshape((-1, xdim))
             sup_loss_x = torch.sqrt(torch.einsum('ij,ij->i', sup_diff_x, sup_diff_x)).mean()
             losses['supervised_x'] = sup_loss_x
-        else:
-            fr_loss_x = fr_loss(
-                y_mapped[:, y_samples].reshape((-1, xdim)),
-                x[:, x_samples].reshape((-1, xdim)), device=self.device,
-                alpha=0.01
-            )
-            fr_loss_y = fr_loss(
-                x_mapped[:, x_samples].reshape((-1, ydim)),
-                x[:, x_samples].reshape((-1, ydim)), device=self.device,
-                alpha=0.01
-            )
-
-            losses['fr_loss_x'] = fr_loss_x
-            losses['fr_loss_y'] = fr_loss_y
+        # This section was used when trying unsupervised variants
+        #else:
+        #    fr_loss_x = fr_loss(
+        #        y_mapped[:, y_samples].reshape((-1, xdim)),
+        #        x[:, x_samples].reshape((-1, xdim)), device=self.device,
+        #        alpha=0.01
+        #    )
+        #    fr_loss_y = fr_loss(
+        #        x_mapped[:, x_samples].reshape((-1, ydim)),
+        #        x[:, x_samples].reshape((-1, ydim)), device=self.device,
+        #        alpha=0.01
+        #    )
+        #    losses['fr_loss_x'] = fr_loss_x
+        #    losses['fr_loss_y'] = fr_loss_y
         if self.reg > 0:
+            # L2 regulariation.
+            # Had to be done like this, explicitly,
+            # because otherwise 2 optimisers had to be defined
+            # which was very fiddly
             mlp_params = list(self.fx.parameters()) + list(self.gy.parameters())
             l2_norm = sum([torch.norm(param, p=2) for param in mlp_params])
             losses['l2_reg'] = self.reg * l2_norm
@@ -443,7 +337,6 @@ class AlignedGlove(pl.LightningModule):
     def __init__(self,
                  batch_size,
                  data,  # DataDict class
-                 # all files must be full paths
                  x_embedding_dim,  # dimension of x
                  y_embedding_dim,  # dimension of y
                  reg=0, # regularisation parameter for MLPs in aligner
@@ -502,23 +395,6 @@ class AlignedGlove(pl.LightningModule):
         if self.save_flag:
             self.save(self.filename.replace(".pt", "_last.pt"))
 
-    def on_train_epoch_start(self):
-        # if epoch is 0, then do the Rx / Ry for Procrustes Wasserstein
-        if self.epochs == 0 and self.probabilistic and not self.supervised:
-            x_intersect = self.aligner.index_map[:, 0]
-            y_intersect = self.aligner.index_map[:, 1]
-            if self.probabilistic:
-                x = self.aligner.x_emb.weights(device=self.device)[x_intersect]
-                y = self.aligner.y_emb.weights(device=self.device)[y_intersect]
-            else:
-                x = self.aligner.x_emb.weight[x_intersect]
-                y = self.aligner.y_emb.weight[y_intersect]
-            fx = self.aligner.fx(x)
-            gy = self.aligner.gy(y)
-            # not sure how to pick the regularisation parameter
-            self.aligner.Rx = convex_init(gy, x, reg=20, device=self.device)
-            self.aligner.Ry = convex_init(fx, y, reg=20, device=self.device)
-
     def on_train_epoch_end(self):
         self.epochs += 1
 
@@ -533,7 +409,6 @@ class AlignedGlove(pl.LightningModule):
             self.min_epoch = self.epochs
         # reset the array
         self.last_accs = []
-
 
     def additional_state(self):
         # return dictionary of things that were passed to constructor
@@ -662,7 +537,7 @@ class AlignedGlove(pl.LightningModule):
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
     def evaluate(self, device='cpu'):
-        # test how good the alignment is.
+        # test how good the alignment is by computing accuracy both ways.
         al = self.aligner
         x_intersect = al.index_map[:, 0]
         y_intersect = al.index_map[:, 1]
@@ -670,25 +545,19 @@ class AlignedGlove(pl.LightningModule):
         x_emb = al.x_emb.weights(n=1, squeeze=True).to(device)
         y_emb = al.y_emb.weights(n=1, squeeze=True).to(device)
         fx = al.fx.to(device)(x_emb)
-        # this calculation is for comparing NN of all y_emb, not just the intersection
-        #fx_dist = torch.cdist(fx[x_intersect], y_emb,
-        #                      compute_mode="donot_use_mm_for_euclid_dist").to(device)
         fx_dist = torch.cdist(fx[x_intersect], y_emb[y_intersect],
                               compute_mode="donot_use_mm_for_euclid_dist").to(device)
 
         _, nn_inds_x = fx_dist.topk(1, dim=1, largest=False)
-        #fx_acc = nn_inds_x.squeeze() == torch.tensor(y_intersect).to(device)
         fx_acc = nn_inds_x.squeeze() == torch.arange(n).to(device)
 
         # and we want gy[y_intersect] to be close to x_emb.weight[x_intersect]
         gy = al.gy.to(device)(y_emb)
-        #gy_dist = torch.cdist(gy[y_intersect], x_emb,
         gy_dist = torch.cdist(gy[y_intersect], x_emb[x_intersect],
                               compute_mode="donot_use_mm_for_euclid_dist").to(device)
         _, nn_inds_y = gy_dist.topk(1, dim=1, largest=False)
         #gy_acc = nn_inds_y.squeeze() == torch.tensor(x_intersect).to(device)
         gy_acc = nn_inds_y.squeeze() == torch.arange(n).to(device)
-
         # (x accuracy, y accuracy)
         return [gy_acc.float().mean().item(), fx_acc.float().mean().item()]
 
@@ -764,7 +633,8 @@ class DataDictionary:
                  all_labels_file,        # full filepath or handle containing all labels to names
                  intersection_plus=None  # controls whether to load only the intersection plus a fixed number
                  # of concepts. None means do everything.
-                 # Must be an int otherwise
+                 # Must be an int otherwise; this many samples from the
+                 # remainder of the concepts will be included
                  ):
 
         x_nconcepts = x_cooc.size()[0]
@@ -780,7 +650,10 @@ class DataDictionary:
         self.x_n = x_nconcepts
         self.y_n = y_nconcepts
         self.all_labels_file = all_labels_file
+        # all_labels = label to index in co-occurrence
+        # all_names = label to concept name
         all_labels, all_names = readlabels(all_labels_file, rootdir=None)
+        # some of these mappings may be useful to expose
         name_to_label = {v: k for k, v in all_names.items()}
         index_to_label = {v: k for k, v in all_labels.items()}
         index_to_name = {v: all_names[k] for k, v in all_labels.items()}
@@ -852,7 +725,6 @@ class DataDictionary:
         ])
 
         index_map = self.intersection_indexes[:, 1:].numpy()
-
         # if intersection_plus was set, work out what to actually include in the co-occurrence.
         # Note we do this only after checking the labels files for consistency.
         # We have to change the intersection indexes / index map to take this into account.

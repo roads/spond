@@ -1,3 +1,7 @@
+# The GloveModel class will learn GloVe embeddings given a dataset that is
+# created from a co-occurrence matrix. It is not very useful because it is not
+# really usable as a layer.
+
 import os
 import socket
 import numpy as np

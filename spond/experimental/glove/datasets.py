@@ -4,7 +4,6 @@ import numpy as np
 import torch
 
 
-
 class GloveWordsDataset:
     # TODO: Need to refactor so that all datasets take a co-occurrence matrix
     # instead of building in here
