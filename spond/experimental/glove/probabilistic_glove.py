@@ -55,12 +55,13 @@ class ProbabilisticGloveLayer(nn.Embedding):
             pyro.set_rng_seed(seed)
         # Internal import because we need to set seed first
         from pyro.distributions import MultivariateNormal
-        # Not calling Embedding constructor, as this module is
-        # composed of Embeddings. However we have to set some attributes
-        nn.Embedding.__init__(self, num_embeddings, embedding_dim,
-                              padding_idx=None, max_norm=None,
-                              norm_type=2.0, scale_grad_by_freq=False,
-                              sparse=False, _weight=None)
+        # This is spurious; we won't actually be using any of the superclass
+        # attributes, but we have to do this to get other things like the
+        # registration of parameters to work.
+        super(ProbabilisticGloveLayer, self).__init__(num_embeddings, embedding_dim,
+                                                      padding_idx=None, max_norm=None,
+                                                      norm_type=2.0, scale_grad_by_freq=False,
+                                                      sparse=False, _weight=None)
         if sparse:
             raise NotImplementedError("`sparse` is not implemented for this class")
         # for the total weight to have a max norm of K, the embeddings
@@ -81,7 +82,8 @@ class ProbabilisticGloveLayer(nn.Embedding):
         # We express it as MV normal because this allows us to use a
         # non diagonal covariance matrix
         # try setting the variance low here instead
-
+        # The output of these needs to be moved to GPU before use,
+        # because there is currently no nice way to move a distribution to GPU.
         self.wi_dist = MultivariateNormal(
             torch.zeros((num_embeddings, embedding_dim)),
             # changing this to 1e-9 makes the embeddings converge to something
@@ -124,8 +126,6 @@ class ProbabilisticGloveLayer(nn.Embedding):
         # carry their own loss.
         self.losses = []
         self._setup_indices()
-        # This can only be set up later after the trainer has initialised
-        self.device = None
 
     def _setup_indices(self):
         # Do some preprocessing to make looking up indices faster.
@@ -140,52 +140,31 @@ class ProbabilisticGloveLayer(nn.Embedding):
         self.allpairs[(self.allindices[0], self.allindices[1])] = True
         self.N = N
 
-    def _set_device(self, device):
-        self.device = device
-        self.softplus = self.softplus.to(device)
-        self.wi_mu = self.wi_mu.to(device)
-        self.bi_mu = self.bi_mu.to(device)
-        self.wi_rho = self.wi_rho.to(device)
-        self.bi_rho = self.bi_rho.to(device)
-        self.co_occurrence = self.co_occurrence.to(device)
-        self.coo_dense = self.coo_dense.to(device)
-        self.allpairs = self.allpairs.to(device)
-
     @property
     def weight(self):
         return self.weights()
 
-    def weights(self, n=1, device=None, squeeze=True):
-        if device is None:
-            device=self.device
+    def weights(self, n=1, squeeze=True):
         # we are taking one sample from each embedding distribution
-        #if n == 1:
-        #    sample_shape = torch.Size([])
-        #else:
         sample_shape = torch.Size([n])
-        wi_eps = self.wi_dist.sample(sample_shape).to(device)
-        if self.wi_mu.weight.device != device:
-            self.wi_mu = self.wi_mu.to(device)
-            self.wi_rho = self.wi_rho.to(device)  # ??? not sure why needed again
+        wi_eps = self.wi_dist.sample(sample_shape).type_as(self.wi_mu.weight.data)
         # TODO: Only because we have assumed a diagonal covariance matrix,
         # is the below elementwise multiplication (* rather than @).
         # If it was not diagonal, we would have to do matrix multiplication
         #wi = self.wi_mu + wi_eps * self.wi_sigma
         wi = (
-            self.wi_mu.weight +
-            # multiplying by 1e-9 below should have the same effect
-            # as changing the wi_eps variance to 1e-9, but it doesn't.
-            # multiplying here results in wi_mu converging very closely
-            # to the deterministic embeddings, but the wi_sigma variance remains
-            # the same as in the other case.
-            wi_eps * self.softplus.to(device)(self.wi_rho.weight) #* 1e-9
+                self.wi_mu.weight +
+                # multiplying by 1e-9 below should have the same effect
+                # as changing the wi_eps variance to 1e-9, but it doesn't.
+                # multiplying here results in wi_mu converging very closely
+                # to the deterministic embeddings, but the wi_sigma variance remains
+                # the same as in the other case.
+                wi_eps * self.softplus(self.wi_rho.weight) #* 1e-9
         )
-        #return wi
         if squeeze:
             return wi.squeeze()
         else:
             return wi
-
 
     # implemented as such to be consistent with nn.Embeddings interface
     def forward(self, indices):
@@ -198,14 +177,14 @@ class ProbabilisticGloveLayer(nn.Embedding):
         # is the below elementwise multiplication (* rather than @).
         # If it was not diagonal, we would have to do matrix multiplication
         w_i = (
-            self.wi_mu(i_indices) +
-            self.wi_eps[i_indices] * self.softplus(self.wi_rho(i_indices))
+                self.wi_mu(i_indices) +
+                self.wi_eps[i_indices] * self.softplus(self.wi_rho(i_indices))
         )
 
         b_i = (
-            self.bi_mu(i_indices) +
+                self.bi_mu(i_indices) +
 
-            self.bi_eps[i_indices] * self.softplus(self.bi_rho(i_indices))
+                self.bi_eps[i_indices] * self.softplus(self.bi_rho(i_indices))
         ).squeeze()
         # If the double updating is not done, it takes a long time to converge.
         w_j = (
@@ -225,9 +204,12 @@ class ProbabilisticGloveLayer(nn.Embedding):
         sample_shape = torch.Size([])
         self.wi_eps = self.wi_dist.sample(sample_shape) #* 1e-9
         self.bi_eps = self.bi_dist.sample(sample_shape) #* 1e-9
-        self.wi_eps = self.wi_eps.to(self.device)
-        self.bi_eps = self.bi_eps.to(self.device)
-
+        # This has to be done because there is currently no nice way to move
+        # a Pyro distribution to GPU.
+        # So we move whatever we sampled from it.
+        template = self.wi_mu.weight.data
+        self.wi_eps = self.wi_eps.type_as(template)
+        self.bi_eps = self.bi_eps.type_as(template)
 
     def _loss_weights(self, x):
         # x: co_occurrence values
@@ -249,7 +231,6 @@ class ProbabilisticGloveLayer(nn.Embedding):
         # There is a disconnect between the indices that are passed in here,
         # and the indices of all pairs in the co-occurrence matrix
         # containing those indices.
-        indices = indices
         indices = indices.sort()[0]
         subset = self.allpairs[indices]
         if not torch.any(subset):
@@ -258,16 +239,17 @@ class ProbabilisticGloveLayer(nn.Embedding):
         # now look up the indices of the existing pairs
         # it is faster to do the indexing into an array of bools
         # instead of the dense array
-        subset_indices = torch.nonzero(subset)
+        subset_indices = torch.nonzero(subset).type_as(indices)
         i_indices = indices[subset_indices[:, 0]]
         j_indices = subset_indices[:, 1]
-
-        i_indices = i_indices
-        j_indices = j_indices
 
         targets = self.coo_dense[(i_indices, j_indices)]
         weights_x = self._loss_weights(targets)
         current_weights = self._update(i_indices, j_indices)
+        # put everything on the right device
+        weights_x = weights_x.type_as(current_weights)
+        targets = targets.type_as(current_weights)
+
         loss = weights_x * F.mse_loss(
             current_weights, torch.log(targets), reduction='none')
         # This is a feasible strategy for mapping indices -> pairs
@@ -339,9 +321,6 @@ class ProbabilisticGlove(pl.LightningModule):
             nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
-        # Need to call _set_device later.
-        # We cannot create the GloveLayer later, because then some initialisation
-        # doesn't happen and the optimiser will blow up.
         self.glove_layer = ProbabilisticGloveLayer(
             self.num_embeddings, self.embedding_dim,
             self.train_cooccurrence, seed=self.seed)
@@ -388,10 +367,6 @@ class ProbabilisticGlove(pl.LightningModule):
         return self.glove_layer.weights()(indices)
 
     def training_step(self, batch, batch_idx):
-        # if this isn't done explicitly it somehow never gets set automatically
-        # by lightning
-        if self.glove_layer.device is None:
-            self.glove_layer._set_device(self.device)
         # If the batch_idx is 0, then we want to sample everything at once
         # if we do multiple samples, end up with torch complaining we are
         # trying to do backprop more than once.
@@ -485,6 +460,7 @@ class Similarity:
             store[str(seed)] = pd.DataFrame(thisvalue)
         store.close()
 
+
 if __name__ == '__main__':
     import os
     import kernels
@@ -492,20 +468,18 @@ if __name__ == '__main__':
     import sys
     from spond.experimental.openimages.readfile import readlabels
 
-    tag = 'openimages'  # or 'audioset'
+    tag = 'audioset'  # 'openimages'
 
     if tag == 'openimages':
         input_embeddings = 'glove_imgs.pt'
         co_occurrence = 'co_occurrence.pt'
+        max_epochs = 250
     else:
         input_embeddings = 'glove_audio.pt'
         co_occurrence = 'co_occurrence_audio_all.pt'
-
-    seeds = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-    if tag == 'openimages':
-        max_epochs = 250
-    else:
         max_epochs = 2000
+
+    seeds = (1, 2, )#3, 4, 5, 6, 7, 8, 9, 10)
     for seed in seeds:
         # change to gpus=1 to use GPU. Otherwise CPU will be used
         # needs to be higher for audioset.
@@ -517,7 +491,7 @@ if __name__ == '__main__':
                                    batch_size=500,
                                    seed=seed,
                                    train_cooccurrence_file=os.path.join(datapath, tag, co_occurrence)
-        )
+                                   )
 
         trainer.fit(model)
         outdir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'results', tag)
@@ -542,4 +516,3 @@ if __name__ == '__main__':
     sim = Similarity(dirname, ProbabilisticGlove, seedvalues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), tag=tag)
     # The dot product similarity of the learned means will be saved in the file {tag}_means_dot
     sim.sim_means(kernels.dot, os.path.join(dirname, 'ProbabilisticGlove', f'{tag}_means_dot.hdf5'), mask=None, mode='w')
-    #sim.sim_means(kernels.cosine, os.path.join(dirname, 'ProbabilisticGlove', f'{tag}_means_cosine.hdf5'), mask=None, mode='w')

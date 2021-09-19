@@ -36,8 +36,6 @@ HIDDEN = 100
 
 
 # Various currently unused loss functions that were tried
-
-
 def energy_loss(mapped, target, device='cpu'):
     nx = mapped.shape[0]
     ny = target.shape[0]
@@ -190,7 +188,6 @@ class AlignedGloveLayer(nn.Module):
         self.fx = MLP(x_embedding_dim, HIDDEN, output_size=y_embedding_dim)
         # g(y) --> x
         self.gy = MLP(y_embedding_dim, HIDDEN, output_size=x_embedding_dim)
-        self.device = None
         self.losses = []
         # external flag set by other classes
         self.mse_cycle_loss = False
@@ -201,13 +198,6 @@ class AlignedGloveLayer(nn.Module):
         if self.probabilistic:
             self.x_emb._init_samples()
             self.y_emb._init_samples()
-
-    def _set_device(self, device):
-        self.device = device
-        self.x_emb._set_device(device)
-        self.y_emb._set_device(device)
-        self.fx = self.fx.to(device)
-        self.gy = self.gy.to(device)
 
     def forward(self, indices):
         # indices are a tuple of x and y index
@@ -275,12 +265,12 @@ class AlignedGloveLayer(nn.Module):
             # alpha = 0.15 for x and 0.05 for y were obtained from calculating the median at each batch,
             # converting to alpha and running with it until convergence
             mmd_loss_gyx = mmd_loss(
-                y_mapped[:, y_samples].reshape((-1, xdim)), x[:, x_samples].reshape((-1, xdim)), device=self.device,
+                y_mapped[:, y_samples].reshape((-1, xdim)), x[:, x_samples].reshape((-1, xdim)),
                 alpha=0.1)
             losses['mmd_x_intersect'] = self.mmd * mmd_loss_gyx
 
             mmd_loss_fxy = mmd_loss(
-                x_mapped[:, x_samples].reshape((-1, ydim)), y[:, y_samples].reshape((-1, ydim)), device=self.device,
+                x_mapped[:, x_samples].reshape((-1, ydim)), y[:, y_samples].reshape((-1, ydim)),
                 alpha=0.1)
             losses['mmd_y_intersect'] = self.mmd * mmd_loss_fxy
 
@@ -489,8 +479,8 @@ class AlignedGlove(pl.LightningModule):
         # by lightning
         # self.device is set by Lightning, but it doesn't pass down
         # to the lower-level layers
-        if self.aligner.device is None:
-            self.aligner._set_device(self.device)
+        #if self.aligner.device is None:
+        #    self.aligner._set_device(self.device)
         # init samples every batch and not just on batch_idx = 0
         self.aligner._init_samples()
 
@@ -512,7 +502,6 @@ class AlignedGlove(pl.LightningModule):
         mean_acc = np.mean([x_acc, y_acc])
 
         self.last_accs = np.concatenate([self.last_accs, [mean_acc]])
-
 
         print(f"losses: {losses}")
         print(f"accuracy: {accdict}")
@@ -855,31 +844,20 @@ if __name__ == '__main__':
 
     sys.path.append(ppath)
 
-    epochs = 2000
+    epochs = 150
     probabilistic = True
-    supervised = False
+    supervised = True
 
     seeds = (1,
-             2, 3, 4, 5, 6, 7, 8, 9, 10
-    )
+             #2, 3, 4, 5, 6, 7, 8, 9, 10
+             )
 
-    analyse = True
-    save = False
-    mmds = [0,
-            100]
-    if analyse:
-        results_path = os.path.join(ppath, 'spond', 'experimental', 'glove', 'results')
-        for mmd in mmds:
-            tag = f'probabilistic_sup_mmd{mmd}_150'
-            print(f"Processing {tag}")
-            sim = AlignedSimilarity(
-                results_path, AlignedGlove, seedvalues=seeds, tag=tag)
-            #sim.means(kernels.dot, os.path.join(results_path, 'means_dot.hdf5'), mask=None, mode='a')
-            sim.means(kernels.cosine, os.path.join(results_path, 'means_cosine.hdf5'), mask=None, mode='a')
-            del sim
-            gc.collect()
-        sys.exit()
-
+    # Set to True if you want to calculate similarity of means
+    analyse = False
+    # Set to True only if you want the models to be saved with
+    # increasing accuracy after 90%
+    save = True
+    mmds = [0, 100]
 
     for mmd, seed in itertools.product(mmds, seeds):
         print("----------------------------------")
@@ -930,3 +908,14 @@ if __name__ == '__main__':
         del datadict
         torch.cuda.empty_cache()
         gc.collect()
+
+    results_path = os.path.join(ppath, 'spond', 'experimental', 'glove', 'results')
+    if analyse:
+        for mmd in mmds:
+            tag = f'probabilistic_sup_mmd{mmd}_150'
+            print(f"Processing {tag}")
+            sim = AlignedSimilarity(
+                results_path, AlignedGlove, seedvalues=seeds, tag=tag)
+            sim.means(kernels.dot, os.path.join(results_path, 'means_dot.hdf5'), mask=None, mode='a')
+            del sim
+            gc.collect()

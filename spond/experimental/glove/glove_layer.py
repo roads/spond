@@ -22,12 +22,13 @@ class GloveLayer(nn.Embedding):
                  max_norm=None, norm_type=2,
                  sparse=False   # not supported- just here to keep interface
                  ):
-        # Not calling Embedding constructor, as this module is
-        # composed of Embeddings. However we have to set some attributes
-        nn.Embedding.__init__(self, num_embeddings, embedding_dim,
-                              padding_idx=None, max_norm=None,
-                              norm_type=2.0, scale_grad_by_freq=False,
-                              sparse=False, _weight=None)
+        # This is spurious; we won't actually be using any of the superclass
+        # attributes, but we have to do this to get other things like the
+        # registration of parameters to work.
+        super(GloveLayer, self).__init__(num_embeddings, embedding_dim,
+                                         padding_idx=None, max_norm=None,
+                                         norm_type=2.0, scale_grad_by_freq=False,
+                                         sparse=False, _weight=None)
         if sparse:
             raise NotImplementedError("`sparse` is not implemented for this class")
         # for the total weight to have a max norm of K, the embeddings
@@ -44,6 +45,7 @@ class GloveLayer(nn.Embedding):
         self.double = double
         self.wi = nn.Embedding(num_embeddings, embedding_dim, **kws)
         self.bi = nn.Embedding(num_embeddings, 1)
+
         self.wi.weight.data.uniform_(-1, 1)
         self.bi.weight.data.zero_()
 
@@ -64,8 +66,6 @@ class GloveLayer(nn.Embedding):
         # carry their own loss.
         self.losses = []
         self._setup_indices()
-        # This can only be set up later after the trainer has initialised
-        self.device = None
 
     def _setup_indices(self):
         # Do some preprocessing to make looking up indices faster.
@@ -79,17 +79,6 @@ class GloveLayer(nn.Embedding):
         self.allpairs = torch.zeros((N, N), dtype=bool)
         self.allpairs[(self.allindices[0], self.allindices[1])] = True
         self.N = N
-
-    def _set_device(self, device):
-        self.device = device
-        self.wi = self.wi.to(device)
-        self.bi = self.bi.to(device)
-        if self.double:
-            self.wj = self.wj.to(device)
-            self.bj = self.bj.to(device)
-        self.co_occurrence = self.co_occurrence.to(device)
-        self.coo_dense = self.coo_dense.to(device)
-        self.allpairs = self.allpairs.to(device)
 
     @property
     def weights(self):
@@ -132,7 +121,6 @@ class GloveLayer(nn.Embedding):
         # There is a disconnect between the indices that are passed in here,
         # and the indices of all pairs in the co-occurrence matrix
         # containing those indices.
-        #indices = indices
         indices = indices.sort()[0]
         subset = self.allpairs[indices]
         if not torch.any(subset):
@@ -151,6 +139,9 @@ class GloveLayer(nn.Embedding):
         targets = self.coo_dense[(i_indices, j_indices)]
         weights_x = self._loss_weights(targets)
         current_weights = self._update(i_indices, j_indices)
+        # put everything on the right device
+        weights_x = weights_x.type_as(current_weights)
+        targets = targets.type_as(current_weights)
         loss = weights_x * F.mse_loss(
             current_weights, torch.log(targets), reduction='none')
         # This is a feasible strategy for mapping indices -> pairs
@@ -214,9 +205,6 @@ class GloveSimple(pl.LightningModule):
             nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
-        # Need to call _set_device later.
-        # We cannot create the GloveLayer later, because then some initialisation
-        # doesn't happen and the optimiser will blow up.
         self.glove_layer = GloveLayer(
             self.num_embeddings, self.embedding_dim,
             self.train_cooccurrence)
@@ -225,10 +213,6 @@ class GloveSimple(pl.LightningModule):
         return self.glove_layer(indices)
 
     def training_step(self, batch, batch_idx):
-        # if this isn't done explicitly it somehow never gets set automatically
-        # by lightning
-        if self.glove_layer.device is None:
-            self.glove_layer._set_device(self.device)
         # input: indices of embedding
         # targets: target embeddings
         indices, targets = batch
@@ -261,7 +245,6 @@ class GloveSimple(pl.LightningModule):
 
     def configure_optimizers(self):
         # Is there an equivalent configure_losses?
-        #opt = optim.Adam(self.parameters(), lr=0.005)
         opt = optim.Adagrad(self.parameters(), lr=0.05)
         return opt
 
@@ -272,7 +255,7 @@ class GloveSimple(pl.LightningModule):
 
 
 class GloveEmbeddingsDataset(Dataset):
-    # Dataset for existing embeddings
+    # Dataset for existing embeddings. This dataset is only used in this module
 
     def __init__(self, data, limit=None, num_embeddings=None):
         # This is only needed if we are training against existing embeddings
@@ -310,16 +293,16 @@ class GloveEmbeddingsDataset(Dataset):
 
 if __name__ == '__main__':
     # change to gpus=1 to use GPU. Otherwise CPU will be used
-    trainer = pl.Trainer(gpus=0, max_epochs=1000, progress_bar_refresh_rate=20)
+    trainer = pl.Trainer(gpus=1, max_epochs=2000, progress_bar_refresh_rate=20)
     # Trainer must be created before model, because we need to detect
     # what we requested for GPU.
-    train_embeddings_file = '../audioset/glove_audioset.pt'
+    train_embeddings_file = '/home/petra/data/audioset/glove_audioset.pt'
     train_data = torch.load(train_embeddings_file, map_location=torch.device('cpu'))
     nemb, dim = train_data['wi.weight'].shape
     model = GloveSimple(batch_size=100,
-                        #train_embeddings_file='../audioset/glove_audioset.pt',
+                        train_embeddings_file=train_embeddings_file,
                         nconcepts=nemb, dim=dim,
-                        train_cooccurrence_file='../audioset/co_occurrence_audio_all.pt')
+                        train_cooccurrence_file='/home/petra/data/audioset/co_occurrence.pt')
     trainer.fit(model)
 
 
