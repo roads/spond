@@ -474,13 +474,7 @@ class AlignedGlove(pl.LightningModule):
         losses = self.aligner.loss(x_ind, y_ind)
         return losses
 
-    def training_step(self, batch, batch_idx):#, optimizer_idx):
-        # if this isn't done explicitly it somehow never gets set automatically
-        # by lightning
-        # self.device is set by Lightning, but it doesn't pass down
-        # to the lower-level layers
-        #if self.aligner.device is None:
-        #    self.aligner._set_device(self.device)
+    def training_step(self, batch, batch_idx):
         # init samples every batch and not just on batch_idx = 0
         self.aligner._init_samples()
 
