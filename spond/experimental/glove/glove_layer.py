@@ -177,13 +177,11 @@ class GloveSimple(pl.LightningModule):
                  nconcepts=None,
                  # and dimension
                  dim=None,
-                 limit=None,
                  double=False):
         # train_embeddings_file: the filename contaning the pre-trained weights
         # train_cooccurrence_file: the filename containing the co-occurrence statistics
         # that we want to match these embeddings to.
         super(GloveSimple, self).__init__()
-        self.limit = limit
         self.train_embeddings_file = train_embeddings_file
         self.double = double
         if train_embeddings_file is not None:
@@ -203,8 +201,6 @@ class GloveSimple(pl.LightningModule):
             assert dim is not None, "If no training data is specified, dim must be passed"
             nemb = nconcepts
             self.pretrained_embeddings = None
-        if limit:
-            nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
         self.glove_layer = GloveLayer(
@@ -251,17 +247,16 @@ class GloveSimple(pl.LightningModule):
         return opt
 
     def train_dataloader(self):
-        dataset = GloveEmbeddingsDataset(self.train_data, self.limit,
-                                         self.num_embeddings)
+        dataset = GloveEmbeddingsDataset(self.train_data, self.num_embeddings)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
 
 class GloveEmbeddingsDataset(Dataset):
     # Dataset for existing embeddings. This dataset is only used in this module,
     # and it is only used if we are training a GloveLayer against a known
-    # set of embeddings. 
+    # set of embeddings.
 
-    def __init__(self, data, limit=None, num_embeddings=None):
+    def __init__(self, data, num_embeddings=None):
         # This is only needed if we are training against existing embeddings
         # otherwise, we just return a set of indices into the coocurrence matrix
         # for which we only need embedding dimension
@@ -269,8 +264,6 @@ class GloveEmbeddingsDataset(Dataset):
             # train_data contains wi.weight / wj.weight / bi.weight / bj.weight
             # for stability, the target is the wi + wj
             self.weights = data['wi.weight'] + data['wj.weight']
-            if limit:
-                self.weights = self.weights[:limit]
             num_embeddings, embedding_dim = self.weights.shape
         else:
             self.weights = None

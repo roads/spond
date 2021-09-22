@@ -296,8 +296,7 @@ class ProbabilisticGlove(pl.LightningModule):
     # as well as the file of cooccurrence data.
     def __init__(self, train_embeddings_file, batch_size, train_cooccurrence_file,
                  use_pretrained=False,
-                 seed=None,
-                 limit=None):
+                 seed=None):
         # train_embeddings_file: the filename contaning the pre-trained weights
         #                        from a determistic Glove run.
         # train_cooccurrence_file: the filename containing the co-occurrence statistics
@@ -305,7 +304,6 @@ class ProbabilisticGlove(pl.LightningModule):
         # use_pretrained: If True, pretrained embeddings will be used as a reference
         super(ProbabilisticGlove, self).__init__()
         self.seed = seed
-        self.limit = limit
         self.use_pretrained = use_pretrained
         self.train_embeddings_file = train_embeddings_file
         self.train_cooccurrence_file = train_cooccurrence_file
@@ -317,8 +315,6 @@ class ProbabilisticGlove(pl.LightningModule):
                 self.train_data['wi.weight'] +
                 self.train_data['wj.weight']
         )
-        if limit:
-            nemb = limit
         self.num_embeddings = nemb
         self.embedding_dim = dim
         self.glove_layer = ProbabilisticGloveLayer(
@@ -333,7 +329,6 @@ class ProbabilisticGlove(pl.LightningModule):
         # the appropriate training file must be present.
         state = dict(
             seed=self.seed,
-            limit=self.limit,
             train_embeddings_file=self.train_embeddings_file,
             train_cooccurrence_file=self.train_cooccurrence_file,
             use_pretrained=self.use_pretrained,
@@ -354,7 +349,7 @@ class ProbabilisticGlove(pl.LightningModule):
         # get the items that would have been passed to the constructor
         additional_state = {}
         items = (
-            'seed', 'limit', 'train_embeddings_file',
+            'seed', 'train_embeddings_file',
             'train_cooccurrence_file', 'batch_size', 'use_pretrained',
         )
         for item in items:
@@ -413,7 +408,7 @@ class ProbabilisticGlove(pl.LightningModule):
 
     def train_dataloader(self):
         train_data = self.train_data if self.use_pretrained else None
-        dataset = GloveEmbeddingsDataset(train_data, self.limit, self.num_embeddings)
+        dataset = GloveEmbeddingsDataset(train_data, self.num_embeddings)
         return DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
 
