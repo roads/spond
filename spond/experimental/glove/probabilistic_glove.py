@@ -309,7 +309,7 @@ class ProbabilisticGlove(pl.LightningModule):
         self.use_pretrained = use_pretrained
         self.train_embeddings_file = train_embeddings_file
         self.train_cooccurrence_file = train_cooccurrence_file
-        self.train_data = torch.load(train_embeddings_file)
+        self.train_data = torch.load(train_embeddings_file, map_location=torch.device('cpu'))
         self.train_cooccurrence = torch.load(train_cooccurrence_file)
         self.batch_size = batch_size
         nemb, dim = self.train_data['wi.weight'].shape

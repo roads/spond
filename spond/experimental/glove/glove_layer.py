@@ -177,13 +177,15 @@ class GloveSimple(pl.LightningModule):
                  nconcepts=None,
                  # and dimension
                  dim=None,
-                 limit=None):
+                 limit=None,
+                 double=False):
         # train_embeddings_file: the filename contaning the pre-trained weights
         # train_cooccurrence_file: the filename containing the co-occurrence statistics
         # that we want to match these embeddings to.
         super(GloveSimple, self).__init__()
         self.limit = limit
         self.train_embeddings_file = train_embeddings_file
+        self.double = double
         if train_embeddings_file is not None:
             self.train_data = torch.load(train_embeddings_file, map_location=torch.device('cpu'))
         else:
@@ -207,7 +209,7 @@ class GloveSimple(pl.LightningModule):
         self.embedding_dim = dim
         self.glove_layer = GloveLayer(
             self.num_embeddings, self.embedding_dim,
-            self.train_cooccurrence)
+            self.train_cooccurrence, double=self.double)
 
     def forward(self, indices):
         return self.glove_layer(indices)
@@ -255,7 +257,9 @@ class GloveSimple(pl.LightningModule):
 
 
 class GloveEmbeddingsDataset(Dataset):
-    # Dataset for existing embeddings. This dataset is only used in this module
+    # Dataset for existing embeddings. This dataset is only used in this module,
+    # and it is only used if we are training a GloveLayer against a known
+    # set of embeddings. 
 
     def __init__(self, data, limit=None, num_embeddings=None):
         # This is only needed if we are training against existing embeddings
