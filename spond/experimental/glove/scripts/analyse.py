@@ -1,3 +1,16 @@
+# This script will process the {tag}_means_dot.hdf5 file produced from running probabilistic_glove.py
+# where {tag} is one of "openimages" or "audioset".
+#
+# It will generate the following:
+# - Correlation of dot product similarity of the learned means with themselves
+#   (over the same random seed)
+# - Cross correlation of dot product similarity between different random seeds
+# - Top 5 nearest neighbours for each concept by Euclidean distance and by correlation
+# - Entropy for each concept sorted from lowest to highest
+# - Correlations of counts (number of occurrences of concept) with entropy
+#
+# Output goes into a file {tag}_analytics
+
 import gc
 import os
 import sys
@@ -16,12 +29,15 @@ if socket.gethostname().endswith('pals.ucl.ac.uk'):
     # set up data path
     datapath = '/home/petra/data'
     gpu = True
-    tag = 'audioset'
-    labelsfn = os.path.join(datapath, tag, 'class_labels.csv')
-    train_cooccurrence_file = os.path.join(datapath, tag, 'co_occurrence_audio_all.pt')
-    #tag = 'openimages'
-    #labelsfn = os.path.join(datapath, tag, 'oidv6-class-descriptions.csv')
-    #train_cooccurrence_file = os.path.join(datapath, tag, 'co_occurrence.pt')
+    # Comment or uncomment the tag as required
+    # You will have to run this separately for each domain.
+    tag = 'audioset' # 'openimages' #
+    if tag == 'audioset':
+        labelsfn = os.path.join(datapath, tag, 'class_labels.csv')
+        train_cooccurrence_file = os.path.join(datapath, tag, 'co_occurrence_audio_all.pt')
+    else:
+        labelsfn = os.path.join(datapath, tag, 'oidv6-class-descriptions.csv')
+        train_cooccurrence_file = os.path.join(datapath, tag, 'co_occurrence.pt')
     deterministic = torch.load(os.path.join(datapath, tag, f'glove_{tag}.pt'))
 
     resultspath = '/home/petra/spond/spond/experimental/glove/results'
@@ -40,7 +56,8 @@ device = torch.device("cuda:0" if gpu else "cpu")
 sys.path.append(ppath)
 
 # Can only import after path is set above
-from spond.experimental.glove.probabilistic_glove import ProbabilisticGlove
+# ProbabilisticGloveLayer must be imported otherwise the models cannot be loaded.
+from spond.experimental.glove.probabilistic_glove import ProbabilisticGlove, ProbabilisticGloveLayer
 from spond.experimental.openimages.readfile import readlabels
 
 rdir = os.path.join(resultspath, f'{tag}/ProbabilisticGlove')
@@ -53,55 +70,45 @@ index_to_label = {v: k for k, v in labels.items()}
 index_to_name = {v: names[k] for k, v in labels.items()}
 name_to_index = {v: k for k, v in index_to_name.items()}
 
-#s = pd.HDFStore(os.path.join(rdir, f'{tag}_means_dot.hdf5'), 'r')
-s = pd.HDFStore(os.path.join(rdir, f'{tag}_means_cosine.hdf5'), 'r')
+s = pd.HDFStore(os.path.join(rdir, f'{tag}_means_dot.hdf5'), 'r')
+#s = pd.HDFStore(os.path.join(rdir, f'{tag}_means_cosine.hdf5'), 'r')
 outfile = pd.HDFStore(os.path.join(rdir, f'{tag}_analytics.hdf5'), mode='a')
-seeds = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-
-N = 200
+seeds = (1, 2, )#3, 4, 5, 6, 7, 8, 9, 10)
 
 included_labels = pd.DataFrame({
     'mid': pd.Series(index_to_label),
     'display_name': pd.Series(index_to_name)
 })
 
+# - Correlation of dot product similarity of the learned means with themselves
+#   (over the same random seed)
 
 for seed in seeds:
-    continue
     df = s[str(seed)]
     print(f"Calculating self-correlation for seed {seed}")
     corrs = np.corrcoef(df.values)
     plt.figure()
     fig = plt.imshow(corrs)
     plt.colorbar(fig)
-    #plt.title(f'Correlation of dot product similarity, {seed}')
-    #plt.savefig(os.path.join(rdir, f'{tag}_dotsim_corr_{seed}.png'))
-    plt.title(f'Correlation of cosine similarity, {seed}')
-    plt.savefig(os.path.join(rdir, f'{tag}_cosine_corr_{seed}.png'))
-    
+    plt.title(f'Correlation of dot product similarity, {seed}')
+    plt.savefig(os.path.join(rdir, f'{tag}_dotsim_corr_{seed}.png'))
+
     plt.close()
     del fig
     gc.collect()
 
-    # print(f"Calculating self-distance for seed {seed}")
-    # dist = cdist(df.values, df.values)  # euclidean is the default
-    # plt.figure()
-    # fig = plt.imshow(dist)
-    # plt.colorbar(fig)
-    # plt.title(f'Distance of dot product similarity, {seed}')
-    # plt.savefig(os.path.join(rdir, f'{tag}_dotsim_dist_{seed}.png'))
-    # del fig
     del corrs
     del df
     gc.collect()
 
 
 # now work out cross correlations
+# - Cross correlation of dot product similarity between different random seeds
 
 crosscorrs = {}
 
 for i, seed1 in enumerate(seeds):
-    
+
     for seed2 in seeds[i+1:]:
         print(f"Calculating cosine cross-correlation for {seed1} x {seed2}")
         c1 = s[str(seed1)].values.ravel()
@@ -115,10 +122,7 @@ s.close()
 
 crosscorrs = pd.Series(crosscorrs)
 outfile['crosscorrs_cosine'] = crosscorrs
-#outfile.flush()
-outfile.close()
-
-sys.exit()
+outfile.flush()
 
 del crosscorrs
 gc.collect()
@@ -126,6 +130,7 @@ gc.collect()
 
 entropies = {}
 models = {}
+# Top 5 nearest neighbours for each concept by Euclidean distance and by correlation
 for metric in ('distance', 'correlation'):
     most = {}
     least = {}
@@ -133,7 +138,7 @@ for metric in ('distance', 'correlation'):
     model_means = {}
     for seed in seeds:
         print(f"Calculating max/min {metric}s for seed {seed}")
-        model = ProbabilisticGlove.load(os.path.join(rdir, f'{tag}_ProbabilisticGlove_{seed}.pt'))
+        model = torch.load(os.path.join(rdir, f'{tag}_ProbabilisticGlove_{seed}.pt'))
         #models[seed] = model
         model_means[seed] = model.glove_layer.wi_mu.weight.detach().cpu().numpy()
         # the code in the branches below is intentionally duplicated sometimes,
@@ -216,8 +221,7 @@ for metric in ('distance', 'correlation'):
 
         most[seed] = maxes
         least[seed] = mins
-
-        # calculate entropy
+        # - Entropy for each concept sorted from lowest to highest
         ent = model.glove_layer.entropy().detach()
         # sort it
         ents, indices = ent.sort()
@@ -275,6 +279,8 @@ det_learnt_corr = pd.Series({
 })
 
 outfile['det_learnt_corr'] = det_learnt_corr
+
+# - Correlations of counts (number of occurrences of concept) with entropy
 
 # Pearson correlation to check for linear relationship
 entropy_count_corr = pd.Series({
