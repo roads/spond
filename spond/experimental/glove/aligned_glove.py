@@ -2,6 +2,7 @@
 # trained from their separate co-occurrence matrices.
 # Module is not called aligner.py to avoid clashing with the existing module
 # of that name. The two may be resolved later.
+
 import pandas as pd
 import sys
 
@@ -152,7 +153,6 @@ class AlignedGloveLayer(nn.Module):
                  # to a concept in y
                  reg=0,      # L2 regularisation parameter
                  mmd=1.0,    # MMD loss scaling
-                 glove=1.0,  # Glove loss scaling
                  seed=None,
                  probabilistic=False,     # If set, use ProbabilisticGloveLayer
                  supervised=True          # If set, will use the index map
@@ -162,7 +162,6 @@ class AlignedGloveLayer(nn.Module):
         self.seed = seed
         self.reg = reg
         self.mmd = mmd
-        self.glove = glove
         self.probabilistic = probabilistic
         x_nconcepts = x_cooc.size()[0]
         y_nconcepts = y_cooc.size()[0]
@@ -205,7 +204,7 @@ class AlignedGloveLayer(nn.Module):
         losses = self.loss(x_ind, y_ind)
         return losses
 
-    def loss(self, x_inds, y_inds, nsamples=1):
+    def loss(self, x_inds, y_inds, nsamples=10):
         # x_inds and y_inds are sequences of the x and y indices that form
         # this minibatch.
         # The loss contains the following items:
@@ -216,11 +215,10 @@ class AlignedGloveLayer(nn.Module):
         # ProbabilisticGlove, because this is now no longer supervised.
         # We are not trying to train to match deterministic embeddings.
         losses = {}
-        # TODO: replace with auto calculated scaling factor?
-        #losses['glove_x'] = self.glove * self.x_emb.loss(x_inds)[0]
+        # scale glove_x by the ratio of numbers of concepts
         losses['glove_x'] = (self.x_n / self.y_n *
                              self.x_emb.loss(x_inds)[0])
-        losses['glove_y'] = self.y_emb.loss(y_inds)[0] # self.glove *
+        losses['glove_y'] = self.y_emb.loss(y_inds)[0]
 
         x = self.x_emb.weights(n=nsamples, squeeze=False)
         y = self.y_emb.weights(n=nsamples, squeeze=False)
@@ -331,12 +329,12 @@ class AlignedGlove(pl.LightningModule):
                  y_embedding_dim,  # dimension of y
                  reg=0, # regularisation parameter for MLPs in aligner
                  mmd=1.0, # factor with which to scale MMD loss
-                 glove=1.0, # factor with which to scale glove loss
                  probabilistic=False,  # whether to use probabilistic layers
                  seed=None,
                  supervised=True,
                  max_epochs=None,
-                 save_flag=True
+                 save_flag=True,
+                 outdir='',  # directory where to save
                  ):
         super(AlignedGlove, self).__init__()
         self.batch_size = batch_size
@@ -348,6 +346,7 @@ class AlignedGlove(pl.LightningModule):
         self.supervised = supervised
         self.max_epochs = max_epochs
         self.save_flag = save_flag
+        self.outdir = outdir
         self.aligner = AlignedGloveLayer(
             self.data.x_cooc,
             self.x_embedding_dim,
@@ -358,8 +357,7 @@ class AlignedGlove(pl.LightningModule):
             probabilistic=probabilistic,
             supervised=supervised,
             reg=reg,
-            mmd=mmd,
-            glove=glove
+            mmd=mmd
         )
         self.losses = []
         self.epochs = 0
@@ -367,12 +365,11 @@ class AlignedGlove(pl.LightningModule):
         self.last_accs  = [] # store by epoch
         self.last_acc_min = 0.0
 
-        # for saving
+        # for saving. The tag is generated from the hyperparameters.
         tag = 'probabilistic' if probabilistic else 'deterministic'
         tag = f'{tag}_sup' if supervised else f'{tag}_unsup'
         tag = f'{tag}_{reg}' if reg > 0 else tag
         tag = f'{tag}_mmd{mmd}' if not np.isclose(mmd, 1) else tag
-        tag = f'{tag}_glove{glove}' if glove > 1 else tag
         self.filename = f'{tag}_{max_epochs}_AlignedGlove_{seed}.pt'
         self.min_epoch = 0
 
@@ -383,7 +380,7 @@ class AlignedGlove(pl.LightningModule):
         df.index = index[:-1]
         self.losses = df
         if self.save_flag:
-            self.save(self.filename.replace(".pt", "_last.pt"))
+            torch.save(self, os.path.join(self.outdir, self.filename.replace(".pt", "_last.pt")))
 
     def on_train_epoch_end(self):
         self.epochs += 1
@@ -394,79 +391,79 @@ class AlignedGlove(pl.LightningModule):
             # don't bother saving if accuracy is below 90%
             if epoch_mean_acc >= 0.90 and self.save_flag:
                 print(f'Would save to {self.filename}: last_acc_min={self.last_acc_min}, epoch_mean_acc={epoch_mean_acc}')
-                self.save(self.filename)
+                torch.save(self, os.path.join(self.outdir, self.filename))
             self.last_acc_min = epoch_mean_acc
             self.min_epoch = self.epochs
         # reset the array
         self.last_accs = []
 
-    def additional_state(self):
-        # return dictionary of things that were passed to constructor
-        # should contain everything necessary to replicate a model.
-        # we don't save things like the actual training data and so on
-        # obviously this means that when the model is loaded,
-        # the appropriate training file must be present.
-        state = dict(
-            seed=self.seed,
-            batch_size=self.batch_size,
-            x_embedding_dim=self.x_embedding_dim,
-            y_embedding_dim=self.y_embedding_dim,
-            probabilistic=self.probabilistic,
-            supervised=self.supervised,
-            losses=self.losses,
-            reg=self.aligner.reg,
-            mmd=self.aligner.mmd,
-            glove=self.aligner.glove,
-            max_epochs=self.max_epochs,
-            min_epoch=self.min_epoch,
-            save_flag=self.save_flag
-        )
-        state.update(self.data.state_dict())
-        return state
+    # def additional_state(self):
+    #     # return dictionary of things that were passed to constructor
+    #     # should contain everything necessary to replicate a model.
+    #     # we don't save things like the actual training data and so on
+    #     # obviously this means that when the model is loaded,
+    #     # the appropriate training file must be present.
+    #     state = dict(
+    #         seed=self.seed,
+    #         batch_size=self.batch_size,
+    #         x_embedding_dim=self.x_embedding_dim,
+    #         y_embedding_dim=self.y_embedding_dim,
+    #         probabilistic=self.probabilistic,
+    #         supervised=self.supervised,
+    #         losses=self.losses,
+    #         reg=self.aligner.reg,
+    #         mmd=self.aligner.mmd,
+    #         glove=self.aligner.glove,
+    #         max_epochs=self.max_epochs,
+    #         min_epoch=self.min_epoch,
+    #         save_flag=self.save_flag
+    #     )
+    #     state.update(self.data.state_dict())
+    #     return state
 
-    def save(self, filename):
-        state = self.state_dict()
-        state.update(self.additional_state())
-        torch.save(state, filename)
+    # def save(self, filename):
+    #     state = self.state_dict()
+    #     state.update(self.additional_state())
+    #     torch.save(state, filename)
 
-    @classmethod
-    def load(cls, filename, device='cpu'):
-        state = torch.load(filename, map_location=device)
-        # first, pop the data dictionary items
-        data_items = (
-            'x_cooc', 'x_labels_file', 'y_cooc', 'y_labels_file',
-            'all_labels_file'
-        )
-        additional_state = {}
-        for item in data_items:
-            additional_state[item] = state.pop(item)
-        # make the data dictionary for passing to the main constructor
-        data = DataDictionary(**additional_state)
-        additional_state = {'data': data}
-        items = (
-            'seed', 'x_embedding_dim', 'y_embedding_dim', 'batch_size',
-            'probabilistic', 'supervised',
-            'max_epochs', 'save_flag', 'reg', 'mmd', 'glove',
-        )
-        for item in items:
-            additional_state[item] = state.pop(item)
-        min_epoch = state.pop('min_epoch')
-        # main constructor
-        instance = cls(**additional_state)
-        instance.min_epoch = min_epoch
-        # must be manually set.
-        losses = state.pop('losses')
-        if not isinstance(losses, pd.DataFrame):
-            df = pd.DataFrame(losses)
-            index = pd.Index(np.linspace(0, instance.max_epochs, num=len(df.index)+1))
-            df.index = index[:-1]
-            losses = df
+    # @classmethod
+    # def load(cls, filename, device='cpu'):
+    #     state = torch.load(filename, map_location=device)
+    #     # first, pop the data dictionary items
+    #     data_items = (
+    #         'x_cooc', 'x_labels_file', 'y_cooc', 'y_labels_file',
+    #         'all_labels_file'
+    #     )
+    #     additional_state = {}
+    #     for item in data_items:
+    #         additional_state[item] = state.pop(item)
+    #     # make the data dictionary for passing to the main constructor
+    #     data = DataDictionary(**additional_state)
+    #     additional_state = {'data': data}
+    #     items = (
+    #         'seed', 'x_embedding_dim', 'y_embedding_dim', 'batch_size',
+    #         'probabilistic', 'supervised',
+    #         'max_epochs', 'save_flag', 'reg', 'mmd', 'glove',
+    #     )
+    #     for item in items:
+    #         additional_state[item] = state.pop(item)
+    #     min_epoch = state.pop('min_epoch')
+    #     # main constructor
+    #     instance = cls(**additional_state)
+    #     instance.min_epoch = min_epoch
+    #     # must be manually set.
+    #     losses = state.pop('losses')
+    #     if not isinstance(losses, pd.DataFrame):
+    #         df = pd.DataFrame(losses)
+    #         index = pd.Index(np.linspace(0, instance.max_epochs, num=len(df.index)+1))
+    #         df.index = index[:-1]
+    #         losses = df
 
-        instance.losses = losses
+    #     instance.losses = losses
 
-        instance.load_state_dict(state)
+    #     instance.load_state_dict(state)
 
-        return instance
+    #     return instance
 
     def forward(self, indices):
         # indices are a tuple of x and y index
@@ -782,7 +779,7 @@ class AlignedSimilarity:
         # don't load all at once as this can lead to out of memory
         clsname = self.clsobj.__name__
         filename = os.path.join(self.dirname, clsname, f'{self.tag}{clsname}_{seed}.pt')
-        model = self.clsobj.load(filename)
+        model = torch.load(filename)
         return model
 
     def means(self, kernel, outfile_root, mode='a', mask=None):
@@ -801,8 +798,8 @@ class AlignedSimilarity:
             # openimages are the x-embeddings.
             # audioset are the y-embeddings.
             lookup = dict(
-                openimages=model.aligner.x_emb.weight.detach().numpy(),
-                audioset=model.aligner.y_emb.weight.detach().numpy()
+                openimages=model.aligner.x_emb.weight.detach().cpu().numpy(),
+                audioset=model.aligner.y_emb.weight.detach().cpu().numpy()
             )
             for domain, values in lookup.items():
                 dirname = os.path.join(os.path.dirname(outfile_root), domain)
@@ -817,9 +814,6 @@ class AlignedSimilarity:
 
 if __name__ == '__main__':
 
-    # How to use this script: First run it with analyse=False to get raw results
-    # Then run it with analyse=True to make the similarity means file
-    # You may have to copy files to the results directory in between
     import os
     import socket
     import kernels
@@ -843,17 +837,20 @@ if __name__ == '__main__':
     supervised = True
 
     seeds = (1,
-             #2, 3, 4, 5, 6, 7, 8, 9, 10
+             2, #3, 4, 5, 6, 7, 8, 9, 10
              )
 
     # Set to True if you want to calculate similarity of means
-    analyse = False
+    analyse = True
     # Set to True only if you want the models to be saved with
     # increasing accuracy after 90%
     save = True
-    mmds = [0, 100]
+    mmds = [0,
+            100]
+    results_path = os.path.join(ppath, 'spond', 'experimental', 'glove', 'results')
 
     for mmd, seed in itertools.product(mmds, seeds):
+        continue
         print("----------------------------------")
         print(f"Starting mmd {mmd}, seed {seed}")
         trainer = pl.Trainer(gpus=int(gpu), max_epochs=epochs, progress_bar_refresh_rate=20)
@@ -894,6 +891,8 @@ if __name__ == '__main__':
                              probabilistic=probabilistic,
                              supervised=supervised, mmd=mmd,
                              save_flag=save,
+                             # This is where the similarity class will look for output
+                             outdir=os.path.join(results_path, 'AlignedGlove'),
                              max_epochs=epochs)    # don't like this duplication but we need it for the filename
         trainer.fit(model)
         print(f"Finished mmd {mmd}, seed {seed}: {model.filename}")
@@ -903,7 +902,6 @@ if __name__ == '__main__':
         torch.cuda.empty_cache()
         gc.collect()
 
-    results_path = os.path.join(ppath, 'spond', 'experimental', 'glove', 'results')
     if analyse:
         for mmd in mmds:
             tag = f'probabilistic_sup_mmd{mmd}_150'

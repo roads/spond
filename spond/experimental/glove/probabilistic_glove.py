@@ -321,42 +321,42 @@ class ProbabilisticGlove(pl.LightningModule):
             self.num_embeddings, self.embedding_dim,
             self.train_cooccurrence, seed=self.seed)
 
-    def additional_state(self):
-        # return dictionary of things that were passed to constructor
-        # should contain everything necessary to replicate a model.
-        # we don't save things like the actual training data and so on
-        # obviously this means that when the model is loaded,
-        # the appropriate training file must be present.
-        state = dict(
-            seed=self.seed,
-            train_embeddings_file=self.train_embeddings_file,
-            train_cooccurrence_file=self.train_cooccurrence_file,
-            use_pretrained=self.use_pretrained,
-            batch_size=self.batch_size,
-        )
-        return state
+    # def additional_state(self):
+    #     # return dictionary of things that were passed to constructor
+    #     # should contain everything necessary to replicate a model.
+    #     # we don't save things like the actual training data and so on
+    #     # obviously this means that when the model is loaded,
+    #     # the appropriate training file must be present.
+    #     state = dict(
+    #         seed=self.seed,
+    #         train_embeddings_file=self.train_embeddings_file,
+    #         train_cooccurrence_file=self.train_cooccurrence_file,
+    #         use_pretrained=self.use_pretrained,
+    #         batch_size=self.batch_size,
+    #     )
+    #     return state
 
-    def save(self, filename):
-        # this is the torch model stuff
-        state = self.state_dict()
-        # this is the custom state like embeddings file name, etc
-        state.update(self.additional_state())
-        torch.save(state, filename)
+    # def save(self, filename):
+    #     # this is the torch model stuff
+    #     state = self.state_dict()
+    #     # this is the custom state like embeddings file name, etc
+    #     state.update(self.additional_state())
+    #     torch.save(state, filename)
 
-    @classmethod
-    def load(cls, filename, device='cpu'):
-        state = torch.load(filename, map_location=device)
-        # get the items that would have been passed to the constructor
-        additional_state = {}
-        items = (
-            'seed', 'train_embeddings_file',
-            'train_cooccurrence_file', 'batch_size', 'use_pretrained',
-        )
-        for item in items:
-            additional_state[item] = state.pop(item)
-        instance = cls(**additional_state)
-        instance.load_state_dict(state)
-        return instance
+    # @classmethod
+    # def load(cls, filename, device='cpu'):
+    #     state = torch.load(filename, map_location=device)
+    #     # get the items that would have been passed to the constructor
+    #     additional_state = {}
+    #     items = (
+    #         'seed', 'train_embeddings_file',
+    #         'train_cooccurrence_file', 'batch_size', 'use_pretrained',
+    #     )
+    #     for item in items:
+    #         additional_state[item] = state.pop(item)
+    #     instance = cls(**additional_state)
+    #     instance.load_state_dict(state)
+    #     return instance
 
     def forward(self, indices):
         return self.glove_layer.weights()(indices)
@@ -434,7 +434,7 @@ class Similarity:
         # don't load all at once as this can lead to out of memory
         clsname = self.clsobj.__name__
         filename = os.path.join(dirname, clsname, f'{self.tag}{clsname}_{seed}.pt')
-        model = self.clsobj.load(filename)
+        model = torch.load(filename) #self.clsobj.load(filename)
         return model
 
     def sim_means(self, kernel, outfile, mode='a', mask=None):
@@ -463,7 +463,8 @@ if __name__ == '__main__':
     import sys
     from spond.experimental.openimages.readfile import readlabels
 
-    tag = 'audioset'  # 'openimages'
+    # You have to run this manually once for openimages and once for audioset.
+    tag = 'audioset'  # 'openimages' #
 
     if tag == 'openimages':
         input_embeddings = 'glove_imgs.pt'
@@ -495,7 +496,7 @@ if __name__ == '__main__':
         if not os.path.exists(outdir):
             os.makedirs(outdir)
         outfile = os.path.join(outdir, f'{tag}_{clsname}_{seed}.pt')
-        model.save(outfile)
+        torch.save(model, outfile)
         del model
         del trainer
         print(f"finished seed {seed}")
@@ -508,6 +509,9 @@ if __name__ == '__main__':
     labels, names = readlabels(labelsfn, rootdir=None)
     dirname = os.path.join(
         os.path.dirname(os.path.abspath(__file__)), 'results', tag)
-    sim = Similarity(dirname, ProbabilisticGlove, seedvalues=(1, 2, 3, 4, 5, 6, 7, 8, 9, 10), tag=tag)
-    # The dot product similarity of the learned means will be saved in the file {tag}_means_dot
+    sim = Similarity(dirname, ProbabilisticGlove, seedvalues=seeds,  tag=tag)
+    # The dot product similarity of the learned means will be saved in the file {tag}_means_dot.hdf5
+    # This will be used in analyse.py to generate various other things
     sim.sim_means(kernels.dot, os.path.join(dirname, 'ProbabilisticGlove', f'{tag}_means_dot.hdf5'), mask=None, mode='w')
+
+
