@@ -3,6 +3,7 @@
 import os
 import numpy as np
 import tempfile
+import traceback
 import shutil
 import torch
 from unittest import TestCase
@@ -14,6 +15,26 @@ from spond.experimental.glove.aligned_glove import AlignedGlove, DataDictionary
 
 
 class GloveLayerTest(TestCase):
+
+    @classmethod
+    def compare_glove_layers(cls, model_layer, rt_layer):
+        for attrname in ('wi', 'bi', 'wj', 'bj'):
+            assert torch.allclose(
+                getattr(model_layer, attrname).weight,
+                getattr(rt_layer, attrname).weight
+            ), f'Roundtrip of GloveLayer.{attrname} was not equal'
+        # can't compare the sparse co_occurrence because torch blows up
+        # using allclose on the sparse structure.
+        assert torch.allclose(
+            model_layer.coo_dense,
+            rt_layer.coo_dense
+        ), 'Roundtrip of GloveLayer.coo_dense was not equal'
+        for attrname in ('x_max', 'alpha'):
+            assert np.allclose(
+                getattr(model_layer, attrname),
+                getattr(rt_layer, attrname)
+            ), f'Roundtrip of GloveLayer.{attrname} was not equal'
+
 
     def test_save_load(self):
         train_embeddings_file = '/home/petra/data/audioset/glove_audioset.pt'
@@ -32,28 +53,50 @@ class GloveLayerTest(TestCase):
         try:
             torch.save(model, outfile)
             rt = torch.load(outfile)
-            for attrname in ('wi', 'bi', 'wj', 'bj'):
-                assert torch.allclose(
-                    getattr(model.glove_layer, attrname).weight,
-                    getattr(rt.glove_layer, attrname).weight
-                ), f'Roundtrip of GloveLayer.{attrname} was not equal'
-            # can't compare the sparse co_occurrence because torch blows up
-            # using allclose on the sparse structure.
-            assert torch.allclose(
-                model.glove_layer.coo_dense,
-                rt.glove_layer.coo_dense
-            ), 'Roundtrip of GloveLayer.coo_dense was not equal'
-            for attrname in ('x_max', 'alpha'):
-                assert np.allclose(
-                    getattr(model.glove_layer, attrname),
-                    getattr(rt.glove_layer, attrname)
-                ), f'Roundtrip of GloveLayer.{attrname} was not equal'
+            self.compare_glove_layers(model.glove_layer, rt.glove_layer)
+            # for attrname in ('wi', 'bi', 'wj', 'bj'):
+            #     assert torch.allclose(
+            #         getattr(model.glove_layer, attrname).weight,
+            #         getattr(rt.glove_layer, attrname).weight
+            #     ), f'Roundtrip of GloveLayer.{attrname} was not equal'
+            # # can't compare the sparse co_occurrence because torch blows up
+            # # using allclose on the sparse structure.
+            # assert torch.allclose(
+            #     model.glove_layer.coo_dense,
+            #     rt.glove_layer.coo_dense
+            # ), 'Roundtrip of GloveLayer.coo_dense was not equal'
+            # for attrname in ('x_max', 'alpha'):
+            #     assert np.allclose(
+            #         getattr(model.glove_layer, attrname),
+            #         getattr(rt.glove_layer, attrname)
+            #     ), f'Roundtrip of GloveLayer.{attrname} was not equal'
         finally:
             # always delete this
             shutil.rmtree(tmpdir)
 
 
 class ProbabilisticGloveLayerTest(TestCase):
+
+    @classmethod
+    # extract into separate function so that AlignedGloveLayerTest can use it
+    def compare_glove_layers(cls, model_layer, rt_layer):
+        # check layer attributes
+        for attrname in ('wi_mu', 'bi_mu', 'wi_rho', 'bi_rho'):
+            assert torch.allclose(
+                getattr(model_layer, attrname).weight,
+                getattr(rt_layer, attrname).weight
+            ), f'Roundtrip of ProbabilisticGloveLayer.{attrname} was not equal'
+        # can't compare the sparse co_occurrence because torch blows up
+        # using allclose on the sparse structure.
+        assert torch.allclose(
+            model_layer.coo_dense,
+            rt_layer.coo_dense
+        ), 'Roundtrip of ProbabilisticGloveLayer.coo_dense was not equal'
+        for attrname in ('x_max', 'alpha'):
+            assert np.allclose(
+                getattr(model_layer, attrname),
+                getattr(rt_layer, attrname)
+            ), f'Roundtrip of ProbabilisticGloveLayer.{attrname} was not equal'
 
     def test_save_load(self):
         train_embeddings_file = '/home/petra/data/audioset/glove_audioset.pt'
@@ -72,33 +115,16 @@ class ProbabilisticGloveLayerTest(TestCase):
         try:
             torch.save(model, outfile)
             rt = torch.load(outfile)
-
             # check model attributes
             for attrname in ('seed', 'train_embeddings_file',
                              'train_cooccurrence_file', 'use_pretrained',
                              'batch_size'):
-                self.assertEquals(
+                np.testing.assert_equal(
                     getattr(model, attrname),
                     getattr(rt, attrname)
                 ), f'Roundtrip of ProbabilisticGlove.{attrname} was not equal'
 
-            # check layer attributes
-            for attrname in ('wi_mu', 'bi_mu', 'wi_rho', 'bi_rho'):
-                assert torch.allclose(
-                    getattr(model.glove_layer, attrname).weight,
-                    getattr(rt.glove_layer, attrname).weight
-                ), f'Roundtrip of ProbabilisticGloveLayer.{attrname} was not equal'
-            # can't compare the sparse co_occurrence because torch blows up
-            # using allclose on the sparse structure.
-            assert torch.allclose(
-                model.glove_layer.coo_dense,
-                rt.glove_layer.coo_dense
-            ), 'Roundtrip of ProbabilisticGloveLayer.coo_dense was not equal'
-            for attrname in ('x_max', 'alpha'):
-                assert np.allclose(
-                    getattr(model.glove_layer, attrname),
-                    getattr(rt.glove_layer, attrname)
-                ), f'Roundtrip of ProbabilisticGloveLayer.{attrname} was not equal'
+            self.compare_glove_layers(model.glove_layer, rt.glove_layer)
         finally:
             # always delete this
             shutil.rmtree(tmpdir)
@@ -116,7 +142,7 @@ class AlignedGloveLayerTest(TestCase):
         probabilistic = True
         supervised = True
         mmd = 100
-        save = True
+        save = False
         epochs = 100
         datadict = DataDictionary(
             x_cooc=torch.load(x_cooc_file),
@@ -155,26 +181,18 @@ class AlignedGloveLayerTest(TestCase):
                     getattr(rt, attrname)
                 ), f'Roundtrip of AlignedGlove.{attrname} was not equal'
 
+            # check attributes for each of the aligner layers
             for emb_name in ('x_emb', 'y_emb'):
                 layer = getattr(model.aligner, emb_name)
                 rt_layer = getattr(rt.aligner, emb_name)
-                # check layer attributes
-                for attrname in ('wi_mu', 'bi_mu', 'wi_rho', 'bi_rho'):
-                    assert torch.allclose(
-                        getattr(layer, attrname).weight,
-                        getattr(rt_layer, attrname).weight
-                    ), f'Roundtrip of AlignedGlove.aligner.{emb_name}.{attrname} was not equal'
-                # can't compare the sparse co_occurrence because torch blows up
-                # using allclose on the sparse structure.
-                assert torch.allclose(
-                    layer.coo_dense,
-                    rt_layer.coo_dense
-                ), f'Roundtrip of AlignedGlove.aligner.{emb_name}.coo_dense was not equal'
-                for attrname in ('x_max', 'alpha'):
-                    assert np.allclose(
-                        getattr(layer, attrname),
-                        getattr(rt_layer, attrname)
-                    ), f'Roundtrip of AlignedGlove.aligner.{emb_name}.{attrname} was not equal'
+                try:
+                    ProbabilisticGloveLayerTest.compare_glove_layers(
+                        layer, rt_layer
+                    )
+                except:
+                    tb = traceback.format_exc()
+                    raise AssertionError(f"AlignedGlove.{emb_name}: {tb}")
+
         finally:
             # always delete this
             shutil.rmtree(tmpdir)
