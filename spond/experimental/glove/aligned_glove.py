@@ -5,7 +5,7 @@
 
 import pandas as pd
 import sys
-
+import os
 import itertools
 import math
 import numpy as np
@@ -87,8 +87,6 @@ def knn_loss(mapped, target, device='cpu', alpha=0.01, k=1):
     knn = sd.SmoothKNNStatistic(nx, ny, cuda=cuda, k=k)
     loss = knn(mapped, target, alphas=[alpha])
     return loss.to(device)
-
-
 
 
 def ot_loss(mapped, target, device='cpu'):

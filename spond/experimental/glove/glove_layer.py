@@ -80,15 +80,21 @@ class GloveLayer(nn.Embedding):
         self.allpairs[(self.allindices[0], self.allindices[1])] = True
         self.N = N
 
-    @property
-    def weights(self):
+    # needed to be compatible with ProbabilisticGloveLayer.weights
+    # so that it can be used interchangeably in AlignedGlove
+    def weights(self, squeeze=True, **kwargs):
         if self.double:
-            return self.wi.weight + self.wj.weight
-        return self.wi.weight
+            ret = self.wi.weight + self.wj.weight
+        else:
+            ret = self.wi.weight
+        if squeeze:
+            return ret
+        else:
+            return ret.unsqueeze(dim=0)
 
     # implemented as such to be consistent with nn.Embeddings interface
     def forward(self, indices):
-        return self.weights[indices]
+        return self.weights()[indices]
 
     def _update(self, i_indices, j_indices):
         w_i = self.wi(i_indices)
@@ -178,7 +184,7 @@ class GloveSimple(pl.LightningModule):
                  # and dimension
                  dim=None,
                  double=False):
-        # train_embeddings_file: the filename contaning the pre-trained weights
+        # train_embeddings_file: the filename containing the pre-trained weights
         # train_cooccurrence_file: the filename containing the co-occurrence statistics
         # that we want to match these embeddings to.
         super(GloveSimple, self).__init__()
@@ -220,7 +226,7 @@ class GloveSimple(pl.LightningModule):
         # Subclass of nn.Embedding
         # but internally, we should give the option to use
         # a co-occurrence matrix
-        out = self.glove_layer.weights[indices]
+        out = self.glove_layer.weights()[indices]
         if self.train_data is not None:
             loss = F.mse_loss(out, targets)
         else:
