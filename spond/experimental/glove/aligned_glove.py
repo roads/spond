@@ -382,7 +382,7 @@ class AlignedGlove(pl.LightningModule):
         if self.save_flag:
             torch.save(self, os.path.join(self.outdir, self.filename.replace(".pt", "_last.pt")))
 
-    def on_train_epoch_end(self):
+    def on_train_epoch_end(self, *args, **kwargs):
         self.epochs += 1
 
         epoch_mean_acc = np.mean(self.last_accs)
@@ -396,74 +396,6 @@ class AlignedGlove(pl.LightningModule):
             self.min_epoch = self.epochs
         # reset the array
         self.last_accs = []
-
-    # def additional_state(self):
-    #     # return dictionary of things that were passed to constructor
-    #     # should contain everything necessary to replicate a model.
-    #     # we don't save things like the actual training data and so on
-    #     # obviously this means that when the model is loaded,
-    #     # the appropriate training file must be present.
-    #     state = dict(
-    #         seed=self.seed,
-    #         batch_size=self.batch_size,
-    #         x_embedding_dim=self.x_embedding_dim,
-    #         y_embedding_dim=self.y_embedding_dim,
-    #         probabilistic=self.probabilistic,
-    #         supervised=self.supervised,
-    #         losses=self.losses,
-    #         reg=self.aligner.reg,
-    #         mmd=self.aligner.mmd,
-    #         glove=self.aligner.glove,
-    #         max_epochs=self.max_epochs,
-    #         min_epoch=self.min_epoch,
-    #         save_flag=self.save_flag
-    #     )
-    #     state.update(self.data.state_dict())
-    #     return state
-
-    # def save(self, filename):
-    #     state = self.state_dict()
-    #     state.update(self.additional_state())
-    #     torch.save(state, filename)
-
-    # @classmethod
-    # def load(cls, filename, device='cpu'):
-    #     state = torch.load(filename, map_location=device)
-    #     # first, pop the data dictionary items
-    #     data_items = (
-    #         'x_cooc', 'x_labels_file', 'y_cooc', 'y_labels_file',
-    #         'all_labels_file'
-    #     )
-    #     additional_state = {}
-    #     for item in data_items:
-    #         additional_state[item] = state.pop(item)
-    #     # make the data dictionary for passing to the main constructor
-    #     data = DataDictionary(**additional_state)
-    #     additional_state = {'data': data}
-    #     items = (
-    #         'seed', 'x_embedding_dim', 'y_embedding_dim', 'batch_size',
-    #         'probabilistic', 'supervised',
-    #         'max_epochs', 'save_flag', 'reg', 'mmd', 'glove',
-    #     )
-    #     for item in items:
-    #         additional_state[item] = state.pop(item)
-    #     min_epoch = state.pop('min_epoch')
-    #     # main constructor
-    #     instance = cls(**additional_state)
-    #     instance.min_epoch = min_epoch
-    #     # must be manually set.
-    #     losses = state.pop('losses')
-    #     if not isinstance(losses, pd.DataFrame):
-    #         df = pd.DataFrame(losses)
-    #         index = pd.Index(np.linspace(0, instance.max_epochs, num=len(df.index)+1))
-    #         df.index = index[:-1]
-    #         losses = df
-
-    #     instance.losses = losses
-
-    #     instance.load_state_dict(state)
-
-    #     return instance
 
     def forward(self, indices):
         # indices are a tuple of x and y index

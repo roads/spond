@@ -321,43 +321,6 @@ class ProbabilisticGlove(pl.LightningModule):
             self.num_embeddings, self.embedding_dim,
             self.train_cooccurrence, seed=self.seed)
 
-    # def additional_state(self):
-    #     # return dictionary of things that were passed to constructor
-    #     # should contain everything necessary to replicate a model.
-    #     # we don't save things like the actual training data and so on
-    #     # obviously this means that when the model is loaded,
-    #     # the appropriate training file must be present.
-    #     state = dict(
-    #         seed=self.seed,
-    #         train_embeddings_file=self.train_embeddings_file,
-    #         train_cooccurrence_file=self.train_cooccurrence_file,
-    #         use_pretrained=self.use_pretrained,
-    #         batch_size=self.batch_size,
-    #     )
-    #     return state
-
-    # def save(self, filename):
-    #     # this is the torch model stuff
-    #     state = self.state_dict()
-    #     # this is the custom state like embeddings file name, etc
-    #     state.update(self.additional_state())
-    #     torch.save(state, filename)
-
-    # @classmethod
-    # def load(cls, filename, device='cpu'):
-    #     state = torch.load(filename, map_location=device)
-    #     # get the items that would have been passed to the constructor
-    #     additional_state = {}
-    #     items = (
-    #         'seed', 'train_embeddings_file',
-    #         'train_cooccurrence_file', 'batch_size', 'use_pretrained',
-    #     )
-    #     for item in items:
-    #         additional_state[item] = state.pop(item)
-    #     instance = cls(**additional_state)
-    #     instance.load_state_dict(state)
-    #     return instance
-
     def forward(self, indices):
         return self.glove_layer.weights()(indices)
 
