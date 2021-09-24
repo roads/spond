@@ -18,7 +18,13 @@ class GloveLayerTest(TestCase):
 
     @classmethod
     def compare_glove_layers(cls, model_layer, rt_layer):
-        for attrname in ('wi', 'bi', 'wj', 'bj'):
+        attrnames = ['wi', 'bi']
+        # AlignedGlove with probabilistic=False will have double set to False
+        # normal GloveLayer will use double = True
+        if model_layer.double:
+            attrnames += ['wj', 'bj']
+
+        for attrname in attrnames:
             assert torch.allclose(
                 getattr(model_layer, attrname).weight,
                 getattr(rt_layer, attrname).weight
@@ -34,7 +40,6 @@ class GloveLayerTest(TestCase):
                 getattr(model_layer, attrname),
                 getattr(rt_layer, attrname)
             ), f'Roundtrip of GloveLayer.{attrname} was not equal'
-
 
     def test_save_load(self):
         train_embeddings_file = '/home/petra/data/audioset/glove_audioset.pt'
@@ -54,22 +59,6 @@ class GloveLayerTest(TestCase):
             torch.save(model, outfile)
             rt = torch.load(outfile)
             self.compare_glove_layers(model.glove_layer, rt.glove_layer)
-            # for attrname in ('wi', 'bi', 'wj', 'bj'):
-            #     assert torch.allclose(
-            #         getattr(model.glove_layer, attrname).weight,
-            #         getattr(rt.glove_layer, attrname).weight
-            #     ), f'Roundtrip of GloveLayer.{attrname} was not equal'
-            # # can't compare the sparse co_occurrence because torch blows up
-            # # using allclose on the sparse structure.
-            # assert torch.allclose(
-            #     model.glove_layer.coo_dense,
-            #     rt.glove_layer.coo_dense
-            # ), 'Roundtrip of GloveLayer.coo_dense was not equal'
-            # for attrname in ('x_max', 'alpha'):
-            #     assert np.allclose(
-            #         getattr(model.glove_layer, attrname),
-            #         getattr(rt.glove_layer, attrname)
-            #     ), f'Roundtrip of GloveLayer.{attrname} was not equal'
         finally:
             # always delete this
             shutil.rmtree(tmpdir)
@@ -139,7 +128,6 @@ class AlignedGloveLayerTest(TestCase):
         batch_size = 1000
         x_dim = y_dim = 6
         seed = 1
-        probabilistic = True
         supervised = True
         mmd = 100
         save = False
@@ -153,46 +141,54 @@ class AlignedGloveLayerTest(TestCase):
             intersection_plus=None
         )
 
-        model = AlignedGlove(batch_size,
-                             data=datadict,
-                             x_embedding_dim=x_dim,  # dimension of x
-                             y_embedding_dim=y_dim,  # dimension of y
-                             seed=seed,
-                             probabilistic=probabilistic,
-                             supervised=supervised, mmd=mmd,
-                             save_flag=save,
-                             max_epochs=epochs)
-        trainer = pl.Trainer(gpus=0, max_epochs=1, progress_bar_refresh_rate=20)
-        trainer.fit(model)
-        # make somewhere to keep it
-        tmpdir = tempfile.mkdtemp()
-        outfile = os.path.join(tmpdir, 'glove.pt')
-        try:
-            torch.save(model, outfile)
-            rt = torch.load(outfile)
+        # test both cases of probabilistic.
+        # If probabilistic=True then the glove_layer will be ProbabilisticGloveLayer
+        # and GloveLayer if not. 
+        for probabilistic, test_cls in [(True, ProbabilisticGloveLayerTest),
+                                        (False, GloveLayerTest)]:
 
-            # check model attributes
-            for attrname in (
-                    'seed', 'batch_size', 'x_embedding_dim', 'y_embedding_dim',
-                    'probabilistic', 'supervised', 'max_epochs', 'save_flag'
-                ):
-                self.assertEquals(
-                    getattr(model, attrname),
-                    getattr(rt, attrname)
-                ), f'Roundtrip of AlignedGlove.{attrname} was not equal'
+            model = AlignedGlove(batch_size,
+                                 data=datadict,
+                                 x_embedding_dim=x_dim,  # dimension of x
+                                 y_embedding_dim=y_dim,  # dimension of y
+                                 seed=seed,
+                                 probabilistic=probabilistic,
+                                 supervised=supervised, mmd=mmd,
+                                 save_flag=save,
+                                 max_epochs=epochs)
+            trainer = pl.Trainer(gpus=0, max_epochs=1, progress_bar_refresh_rate=20)
+            trainer.fit(model)
+            # make somewhere to keep it
+            tmpdir = tempfile.mkdtemp()
+            outfile = os.path.join(tmpdir, 'glove.pt')
+            try:
+                torch.save(model, outfile)
+                rt = torch.load(outfile)
 
-            # check attributes for each of the aligner layers
-            for emb_name in ('x_emb', 'y_emb'):
-                layer = getattr(model.aligner, emb_name)
-                rt_layer = getattr(rt.aligner, emb_name)
-                try:
-                    ProbabilisticGloveLayerTest.compare_glove_layers(
-                        layer, rt_layer
-                    )
-                except:
-                    tb = traceback.format_exc()
-                    raise AssertionError(f"AlignedGlove.{emb_name}: {tb}")
+                # check model attributes
+                for attrname in (
+                        'seed', 'batch_size', 'x_embedding_dim', 'y_embedding_dim',
+                        'probabilistic', 'supervised', 'max_epochs', 'save_flag'
+                    ):
+                    self.assertEquals(
+                        getattr(model, attrname),
+                        getattr(rt, attrname)
+                    ), f'Roundtrip of AlignedGlove.{attrname} was not equal'
 
-        finally:
-            # always delete this
-            shutil.rmtree(tmpdir)
+                # check attributes for each of the aligner layers
+                for emb_name in ('x_emb', 'y_emb'):
+                    layer = getattr(model.aligner, emb_name)
+                    rt_layer = getattr(rt.aligner, emb_name)
+                    try:
+                        test_cls.compare_glove_layers(
+                            layer, rt_layer
+                        )
+                    except:
+                        tb = traceback.format_exc()
+                        raise AssertionError(
+                            f"probabilistic={probabilistic}: "
+                            f"AlignedGlove.{emb_name}: {tb}"
+                        )
+            finally:
+                # always delete this
+                shutil.rmtree(tmpdir)
