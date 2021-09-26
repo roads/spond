@@ -29,23 +29,12 @@ from scipy import stats
 import itertools
 
 import socket
-remote = socket.gethostname().endswith('pals.ucl.ac.uk')
-if remote:
-    # set up pythonpath
-    ppath = '/home/petra/spond'
-    # set up data path
-    datapath = '/home/petra/data'
-    gpu = False
-    resultspath = '/home/petra/spond/spond/experimental/glove/results'
-else:
-    1/0
-    ppath = '/opt/github.com/spond/spond/experimental'
-    datapath = ppath
-    gpu = False
-    tag = 'audioset'
-    labelsfn = "/opt/github.com/spond/spond/experimental/audioset/all_labels.csv"
-    resultspath = '/opt/github.com/spond/spond/experimental/glove/results/'
-    train_cooccurrence_file = ''
+# set up pythonpath
+ppath = '/home/petra/spond'
+# set up data path
+datapath = '/home/petra/data'
+gpu = True
+resultspath = '/home/petra/spond/spond/experimental/glove/results'
 
 device = torch.device("cuda:0" if gpu else "cpu")
 
@@ -81,7 +70,9 @@ import itertools
 
 mmds = (0, 100)
 
+# Do for each domain and MMD combination
 for domain, mmd in itertools.product(domains, mmds):
+    # This tag defines which results file to look in for the different MMDs
     tag = f'probabilistic_sup_mmd{mmd}_150'
     print("-----------------------------------_")
     print(f"{domain}: Processing {tag}")
@@ -104,10 +95,13 @@ for domain, mmd in itertools.product(domains, mmds):
 
     rdir = os.path.join(resultspath, domain, 'AlignedGlove')
 
-
+    # This file was generated from aligned_glove.py
     s = pd.HDFStore(os.path.join(rdir, f'{tag}_means_dot.hdf5'), 'r')
-    seeds = (1, 2, )#3, 4, 5, 6, 7, 8, 9, 10)
+    seeds = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
+    # - Correlation of dot product similarity of the learned means with themselves
+    #   (over the same random seed)
+    # This may not be necessary if you don't care about viewing the plots
     for seed in seeds:
         df = s[str(seed)]
         print(f"Calculating self-correlation for seed {seed}")
@@ -128,7 +122,7 @@ for domain, mmd in itertools.product(domains, mmds):
     # now work out cross correlations
 
     outfile = pd.HDFStore(os.path.join(rdir, f'{tag}_analytics.hdf5'), 'a')
-
+    # - Cross correlation of dot product similarity between different random seeds
     crosscorrs = {}
 
     for i, seed1 in enumerate(seeds):
@@ -140,7 +134,6 @@ for domain, mmd in itertools.product(domains, mmds):
             del c1
             del c2
             gc.collect()
-
     s.close()
 
     crosscorrs = pd.Series(crosscorrs)
@@ -149,11 +142,12 @@ for domain, mmd in itertools.product(domains, mmds):
 
     del crosscorrs
     gc.collect()
-    continue
+
     included_labels = included_labels_dict[domain]
 
     metrics = ('distance', 'correlation')
-
+    # We need to get the learned embeddings for each seed,
+    # in order to look up the nearest neighbours
     raw_results_path = '/home/petra/spond/spond/experimental/glove/results/AlignedGlove'
 
     entropies = {}
@@ -174,15 +168,15 @@ for domain, mmd in itertools.product(domains, mmds):
         for seed in seeds:
             print(f"Calculating max/min {metric}s for seed {seed}")
             model = torch.load(os.path.join(raw_results_path, f'{tag}_AlignedGlove_{seed}.pt'))
-
+            # at the moment, openimages --> x and audioset --> y
             if domain == 'audioset':
                 emb = model.aligner.y_emb
             else:
                 emb = model.aligner.x_emb
 
-            #models[seed] = model
             attrname = attrnames[domain]
-            model_means [seed] = getattr(model.aligner, attrname).wi_mu.weight.detach().cpu().numpy()
+            # we only care about the means.
+            model_means[seed] = getattr(model.aligner, attrname).wi_mu.weight.detach().cpu().numpy()
             # the code in the branches below is intentionally duplicated sometimes,
             # because we have to garbage collect to avoid big structures being
             # retained in memory after they are not needed.
@@ -190,10 +184,13 @@ for domain, mmd in itertools.product(domains, mmds):
                 cc = np.corrcoef(emb.wi_mu.weight.detach().numpy())
                 # replace values of 1 with inf or -inf so that we can sort easily
                 mostlike = cc.copy()
+                # set any correlations of 1 to -inf so that when reverse sorted,
+                # they go to the top
                 mostlike[np.isclose(cc, 1)] = -np.inf
                 # top are the indexes of the highest correlations sorted by column
                 # do .copy() here because later in the loop we can then delete
                 # mostlike and leastlike, and free a lot of memory
+                # reverse sort, and take the last 5.
                 top = mostlike.argsort(axis=0)[-5:][::-1].copy()
                 maxes = pd.Series({
                     included_labels['display_name'][i]:
@@ -203,7 +200,7 @@ for domain, mmd in itertools.product(domains, mmds):
                 })
                 del mostlike
                 gc.collect()
-
+                # do the same as for mostlike, just in reverse
                 leastlike = cc.copy()
                 leastlike[np.isclose(cc, 1)] = np.inf
                 bottom = leastlike.argsort(axis=0)[:5].copy()
@@ -264,7 +261,7 @@ for domain, mmd in itertools.product(domains, mmds):
             most[seed] = maxes
             least[seed] = mins
 
-            ## Need to make this work
+            # - Entropy for each concept sorted from lowest to highest
             # calculate entropy
             ent = emb.entropy().detach()
             # sort it
@@ -308,7 +305,7 @@ for domain, mmd in itertools.product(domains, mmds):
     counts = cooc.sum(axis=0).numpy()
     counts = pd.Series(data=counts)
 
-    # we want to compare with the single modality deterministic
+    # don't know if this is still required. It may not be.
     single_modality_fn = os.path.join(datapath, domain, f'glove_{domain}.pt')
 
     deterministic = torch.load(single_modality_fn)
@@ -325,11 +322,10 @@ for domain, mmd in itertools.product(domains, mmds):
     name_to_index = name_to_index_map[domain]
 
     attrname = attrnames[domain]
-
+    # - Correlations of counts (number of occurrences of concept) with entropy
     det_learnt_corr = pd.Series({
         # calculate correlation between deterministic and learnt means
         seed: np.corrcoef(
-            #getattr(models[seed].aligner, attrname).wi_mu.weight.detach().cpu().numpy(),
             model_means[seed],
             det_embeddings.numpy()
         )[0][1]
@@ -364,5 +360,7 @@ for domain, mmd in itertools.product(domains, mmds):
     outfile['entropy_count_rcorr'] = entropy_count_rcorr
 
     outfile.close()
+
+    del model_means
     del models
     gc.collect()
