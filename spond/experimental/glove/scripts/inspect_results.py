@@ -1,5 +1,6 @@
+# This module contains useful stuff to generate various plots and analyses.
 # analyse_aligned.py and analyse.py must be run before this,
-# in order to generate the HDF5 files
+# in order to generate the HDF5 files that contain the data.
 import itertools
 import gc
 import numpy as np
@@ -12,20 +13,19 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from sklearn.manifold import TSNE
 
-
+# https://adjusttext.readthedocs.io/en/latest/index.html
+# Needed only to make the labels pretty
 from adjustText import adjust_text
 
+# set up data path
+resultspath = "/home/petra/spond/spond/experimental/glove/results"
+datapath = "/home/petra/data"
+sys.path.append('/home/petra/spond')
+sys.path.append('/home/petra/spond/spond/experimental/glove')
 
-import socket
-if socket.gethostname().endswith('pals.ucl.ac.uk'):
-    # set up data path
-    resultspath = "/home/petra/spond/spond/experimental/glove/results"
-    datapath = "/home/petra/data"
-    sys.path.append('/home/petra/spond')
-    sys.path.append('/home/petra/spond/spond/experimental/glove')
-    load = True
-else:
-    1/0
+# Set this flag if you want to load data from all the results into memory.
+# It takes a while
+load = True
 
 from spond.experimental.openimages.readfile import readlabels
 from spond.experimental.glove.aligned_glove import AlignedGlove
@@ -61,11 +61,6 @@ lookup = {
 domains = ("openimages",
            "audioset",)
 
-#regs = (0, 0.001, 0.01, 0.1, 0.5)
-
-
-#tags = ['probabilistic_sup_mmd100_100']  # no regularisation
-#tags += [f"probabilistic_sup_{reg}_mmd100_100" for reg in regs[1:]]
 mmds = [0, 100]
 tags = [f'probabilistic_sup_mmd{mmd}_150' for mmd in mmds]
 
@@ -99,7 +94,8 @@ for domain in domains:
 stores = {"AlignedGlove": {}, "ProbabilisticGlove": {}}
 corrs = {"AlignedGlove": {}, "ProbabilisticGlove": {}}
 dists = {"AlignedGlove": {}, "ProbabilisticGlove": {}}
-
+# If the "load" flag is set, load correlations, distances, models
+# into memory so we can call various functions from interactive interpreter
 for tag, mmd in zip(tags, mmds):
     if not load:
         continue
@@ -123,7 +119,7 @@ for tag, mmd in zip(tags, mmds):
     corrs[model_name][mmd] = t_corrs
     dists[model_name][mmd] = t_dists
 if load:
-    
+
     t_stores =  {
         domain: pd.HDFStore(os.path.join(resultspath, domain, "ProbabilisticGlove", f"{domain}_analytics.hdf5"), 'r')
         for domain in domains
@@ -140,7 +136,7 @@ if load:
     stores["ProbabilisticGlove"][0] = t_stores
     dists["ProbabilisticGlove"][0] = t_dists
     corrs["ProbabilisticGlove"][0] = t_corrs
-    
+
 
 def mostalike(domain, concept, metric, mmd, model_name="AlignedGlove", seeds=[1,2,3,4,5]):
     lookup = corrs if metric == 'correlation' else dists
@@ -160,7 +156,7 @@ def format_mostalike(df, seeds=[1,2,3,4,5]):
     prefix = r"""
     \begin{table}[]
     \begin{tabular}{@{}""" + ("l" * (N+1)) + """@{}}
-Rank / Seed &""" + "&".join([f"{s} " for s in seeds]) + r"\\" 
+Rank / Seed &""" + "&".join([f"{s} " for s in seeds]) + r"\\"
     out = [prefix]
     postfix = r"""
     \end{tabular}
@@ -173,14 +169,14 @@ Rank / Seed &""" + "&".join([f"{s} " for s in seeds]) + r"\\"
             label, value = df[seed].loc[i]
             thisrow.append(wrapper.format(label=label, value=value))
         out.append("&".join(thisrow) + r" \\")
-    
+
     out.append(postfix)
     return "\n".join(out)
 
 
 def get_model_details(domain, tag, seed, model_name='AlignedGlove'):
     # given a model identifying details like name, domain, tag, seed
-    # return the appropriate embeddings and co-occurrence that correspond to it. 
+    # return the appropriate embeddings and co-occurrence that correspond to it.
     if model_name == "AlignedGlove":
         fn = os.path.join(
             resultspath, 'AlignedGlove', f"{tag}_AlignedGlove_{seed}.pt")
@@ -191,7 +187,7 @@ def get_model_details(domain, tag, seed, model_name='AlignedGlove'):
         model = ProbabilisticGlove.load(fn)
     else:
         raise AssertionError(f"Invalid model name {model_name}")
-    
+
     if model_name == "AlignedGlove":
         if domain == 'openimages':
             emb = model.aligner.x_emb
@@ -219,7 +215,7 @@ def get_model_details(domain, tag, seed, model_name='AlignedGlove'):
             labelsfn = os.path.join(datapath, domain, 'oidv6-class-descriptions.csv')
         else:
             labelsfn = os.path.join(datapath, domain, 'class_labels.csv')
-        
+
 
         labels, names = readlabels(labelsfn, rootdir=None)
 
@@ -230,21 +226,20 @@ def get_model_details(domain, tag, seed, model_name='AlignedGlove'):
 
     return model, emb, cooc, mapping_fn, index_to_name
 
-    
 
 def tsne(domain, tag, seed, intersection=True, top_k=200, model_name="AlignedGlove", adjust=True,
          mapped=False, figsize=(30, 30)):
     # if intersection is True: The intersection points will always be included.
     # If top_k is also true, the top K most common points will also be plotted.
     # If mapped is True, will plot the mapped version of the domain eg if domain=openimages, mapped=True,
-    # the projection of openimages into audioset embedding space will be plotted. 
+    # the projection of openimages into audioset embedding space will be plotted.
     # load the model corresponding to the tag/seed and run TSNE on it
     # Different naming convention for aligned or probabilistic
     # things need to be saved in the right directory
     if model_name == "ProbabilisticGlove":
         assert top_k > 0, "ProbabilisticGlove must be used with top_k != 0"
     model, emb, cooc, mapping_fn, index_to_name = get_model_details(domain, tag, seed, model_name)
-    if intersection and model_name == "AlignedGlove": 
+    if intersection and model_name == "AlignedGlove":
         if domain == 'openimages':
             intersect = model.data.intersection_indexes[:, 1]
         else:
@@ -265,17 +260,17 @@ def tsne(domain, tag, seed, intersection=True, top_k=200, model_name="AlignedGlo
     print(indexes)
     # at this point, "indexes" gives the index into the co-occurrence
     # we need to map backwards to get the actual names
-        
+
     tsne = TSNE(metric='cosine', n_components=2, random_state=123)
     input_emb = emb.weight.detach().cpu()
     if mapped:
         input_emb = mapping_fn.cpu()(input_emb).detach()
     embeddings = tsne.fit_transform(input_emb.numpy()[indexes, :])
-        
+
     fig = plt.figure(figsize=figsize)
 
     texts = []
-    
+
     for idx, concept_idx in enumerate(indexes):
         m = embeddings[idx, :]
         col = 'steelblue' if concept_idx in intersect else 'orange'
@@ -315,11 +310,11 @@ def tsne(domain, tag, seed, intersection=True, top_k=200, model_name="AlignedGlo
 
 def tsne_both(tag, seed, top_k=200, adjust=True, figsize=(30, 30)):
     # Will plot TSNE of the embeddings in the shared transformed space
-    # that is: f(x) and g(y). Will plot top_k plus intersection. 
+    # that is: f(x) and g(y). Will plot top_k plus intersection.
 
     model_name = "AlignedGlove"
     model = AlignedGlove.load(os.path.join(resultspath, model_name, f"{tag}_{model_name}_{seed}.pt"))
-    
+
     #model, emb, cooc, index_to_name = get_model_details(domain, tag, seed, model_name)
 
     x_intersect = model.data.intersection_indexes[:, 1]
@@ -352,7 +347,7 @@ def tsne_both(tag, seed, top_k=200, adjust=True, figsize=(30, 30)):
     # at this point, "indexes" gives the index into the co-occurrence.
     # stick them together
     all_indexes = np.hstack([indexes['openimages'], indexes['audioset']])
-    
+
 
     all_embs = np.vstack([
         model.aligner.fx(model.aligner.x_emb.weight).detach().cpu().numpy()[indexes['openimages'], :],
@@ -360,7 +355,7 @@ def tsne_both(tag, seed, top_k=200, adjust=True, figsize=(30, 30)):
     ])
     tsne = TSNE(metric='cosine', n_components=2, random_state=123)
     embeddings = tsne.fit_transform(all_embs)
-        
+
     fig = plt.figure(figsize=figsize)
 
     texts = []
@@ -392,10 +387,8 @@ def tsne_both(tag, seed, top_k=200, adjust=True, figsize=(30, 30)):
     plt.close()
     del model
     gc.collect()
-    
 
 
-    
 def get_entropies(model_name, mmd, domain, concept, seeds=[1,2,3,4,5]):
     return pd.Series({
         seed: stores[model_name][mmd][domain]['entropies'][seed][concept]
@@ -463,7 +456,7 @@ def aligned_vs_ind_corrs(mmd, domain, seeds=[1,2,3,4,5,6,7,8,9,10]):
     aligned = pd.HDFStore(
         os.path.join(resultspath, domain, 'AlignedGlove', f"probabilistic_sup_mmd{mmd}_150_means_dot.hdf5"),
         "r"
-    )    
+    )
     corrs = {}
     for seed in seeds:
         print(f"Calculating correlations between aligned / independent for {domain}:{mmd}:{seed}")
@@ -476,15 +469,15 @@ def aligned_vs_ind_corrs(mmd, domain, seeds=[1,2,3,4,5,6,7,8,9,10]):
     ind.close()
     aligned.close()
     return pd.Series(corrs)
-    
+
 
 def stability(dists, model_name, mmd, domain, seeds=[1, 2, 3, 4, 5, 6, 7, 8, 9, 10], top_k=300,
               cooc=None, index_to_name=None, method='intersection'):
     # If method is intersection:
-    # count the number of concepts intersecting in 5 nearest neighbours, divide by 5. 
+    # count the number of concepts intersecting in 5 nearest neighbours, divide by 5.
     # If method is union:
-    # count the union of 5 nearest neighbours of each concept, divide by 5, take reciprocal. 
-    
+    # count the union of 5 nearest neighbours of each concept, divide by 5, take reciprocal.
+
     # to store the indexes of the top k concepts, only needs to be calculated once
     indexes  = None
     assert method in ("intersection", "union")
@@ -527,7 +520,7 @@ def calc_stabilities():
 
     for mmd, domain in itertools.product(mmds, domains):
         stabilities[('AlignedGlove', mmd, domain)] = stability('AlignedGlove', mmd, domain)
-    
+
 
     for domain in domains:
         stabilities[('ProbabilisticGlove', 0, domain)] = stability('ProbabilisticGlove', 0, domain)
@@ -561,8 +554,8 @@ def calc_stabilities():
     plt.savefig(os.path.join(resultspath, 'openimages_stability.png'))
     plt.close()
 
-if __name__ == '__main__':
-    import itertools
+#if __name__ == '__main__':
+#    import itertools
 
     #plot_entropies_box('ProbabilisticGlove', 0, 'openimages')
     #plot_entropies_box('ProbabilisticGlove', 0, 'audioset')
@@ -574,7 +567,7 @@ if __name__ == '__main__':
     #    corrs = aligned_vs_ind_corrs(mmd, domain)
     #    outfile[f"{domain}_mmd{mmd}"] = corrs
     #outfile.close()
-    #sys.exit()    
+    #sys.exit()
     #tsne('openimages', tag, seed, intersection=True, top_k=300, model_name="AlignedGlove", adjust=True,
     #         figsize=(20,  20))
     #    tsne('audioset', tag, seed, intersection=True, top_k=300, model_name="AlignedGlove", adjust=True,

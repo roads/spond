@@ -1,3 +1,9 @@
+# Run similarity comparisons with WordNet.
+# The nltk library will be required for this.
+
+# This script should be run from the interactive shell-
+# it sets variables which can then be inspected, dumped to tables, etc
+
 from nltk.corpus import wordnet as wn
 import nltk
 import itertools
@@ -18,18 +24,27 @@ from spond.experimental.glove.probabilistic_glove import ProbabilisticGlove
 
 
 def compare_with_wordnet(aligned, openimages, audioset, wordnet_pairs=None, logtag=""):
-    # Run comparison with HSJ given an AlignedGlove model and
-    # 2 independently learnt ProbabilisticGlove models for openimages
+    # aligned: AlignedGlove model instance
+    # openimages, audioset: ProbabilisticGlove model instances for the two domains
+    # wordnet_pairs: pd.Series of wordnet similarities if pre-calculated, otherwise None
+    #                will force this algorithm to construct it
+    # logtag: String that will be used to tag logging messages
+    #
+    # Run comparison with WordNet simlarity given an AlignedGlove model and
+    # 2 independently learnt ProbabilisticGlove models (for openimages and audioset)
     # which also hold the co-occurrences.
-    # a pair can be tested if it is present in HSJ and in a co-occurrence matrix
-    # with a score of non zero.
+    # a pair can be tested if it is present in WordNet and in a co-occurrence matrix
+    # more than once.
     # It takes a long time to run the wordnet_pairs, and they are the same for all embeddings
-    # so allow passing it in
+    # so allow passing it in with the wordnet_pairs argument.
+    # If wordnet_pairs is not passed, this function will build the
+    # data structure of pairs and then return it.
+    #
+    # We do not do any stemming of the concepts.
     # for now we will have to do an exact string match
-    # iterate over all the hsj word1 and word2 pairs and assume that
-    # keys for all: word1, word2
     build_wn = wordnet_pairs is None
     if build_wn:
+        # keys: (word1, word2)
         wordnet_pairs = {}
     else:
         print("Wordnet pairs already built")
@@ -46,8 +61,7 @@ def compare_with_wordnet(aligned, openimages, audioset, wordnet_pairs=None, logt
     indpt = {'openimages': openimages, 'audioset': audioset}
     embs = {'openimages': aligned.aligner.x_emb, 'audioset': aligned.aligner.y_emb}
     names = {'openimages': openimages_index_to_name, 'audioset': audioset_index_to_name}
-    indexes = {'openimages': openimages_name_to_index, 'audioset': audioset_name_to_index}
-    #out = {'openimages': openimages_pairs, 'audioset': audioset_pairs}
+    #indexes = {'openimages': openimages_name_to_index, 'audioset': audioset_name_to_index}
     intersections = {'openimages': [], 'audioset': []}
     aligned_pairs = {'openimages': [], 'audioset': []}
     indpt_pairs = {'openimages': [], 'audioset': []}
@@ -57,19 +71,23 @@ def compare_with_wordnet(aligned, openimages, audioset, wordnet_pairs=None, logt
     if build_wn:
         for domain in ('openimages', 'audioset'):
             emb = embs[domain]
-            # emb.co_occurrence is a sparse matrix, so calling indices() on it will only return
-            # items that occur nonzero times.
+            # emb.co_occurrence is a sparse matrix, so calling indices() on it
+            # will return pairs that occur nonzero times.
+            # Iterate over each pair of indices. The indices will be used
+            # to get the concept names.
             for i, (ind1, ind2) in enumerate(emb.co_occurrence.indices().t().cpu().numpy()):
                 if i % 1000 == 0:
                     print(f"{logtag}{domain}: i={i}")
                 # the concepts are guaranteed to be present by construction
                 d1 = names[domain].get(ind1)
                 d2 = names[domain].get(ind2)
-                # prepare for passing to wordnet
+                # prepare for passing to wordnet by converting to the same form
+                # all lower case, with spaces replaced by underscores.
                 word1 = d1.lower().replace(" ", "_")
                 word2 = d2.lower().replace(" ", "_")
                 # if either word is not in wordnet, stop.
-                ws1 =  wn.synsets(word1)
+                # This is just a plain text match with no stemming
+                ws1 = wn.synsets(word1)
                 if not ws1:
                     continue
                 ws2 = wn.synsets(word2)
@@ -83,26 +101,27 @@ def compare_with_wordnet(aligned, openimages, audioset, wordnet_pairs=None, logt
                 # comparing mandarin_orange(tree) with orange has v low similarity
                 # comparing mandarin(fruit) with orange has high similarity
                 # so this heuristic should hopefully pick up the greatest similarity
-                #print(f"{domain}: testing {word1} x {word2}")
                 sims = []
                 # ws1[:2] will return the first 2 if there are >=2 or the first 1 only
                 for syn1, syn2 in itertools.product(ws1[:2], ws2[:2]):
                     if syn1._pos != syn2._pos:
-                        # must have same part of speech
+                        # must have same part of speech, or else
+                        # similarity is not defined.
                         continue
                     sim = syn1.lch_similarity(syn2)
                     sims.append(sim)
                 # in case somehow all combinations are different parts of speech
+                # then we have nothing to check.
                 if not sims:
-                    #print(f"Ignoring {word1} x {word2}, different POS")
                     continue
+                # Just take the maximum - so this algorithm will be biased high.
                 score = np.max(sims)
                 wordnet_pairs[(d1, d2)] = score
-                #domain_inds[domain].append((d1, d2))
-            # after this, take the first and second items to use fancy indexing
-            #domain_inds[domain] = np.array(domain_inds).T
+        # Finally build the series of pairs and their similarity
+        # as measured by WordNet LCH similarity.
+        # Index is multi-index of word pairs.
         wordnet_pairs = pd.Series(wordnet_pairs)
-    # iterate over wordnet_pairs.
+    # iterate over wordnet_pairs for each domain.
     for domain, name2index in [('openimages', openimages_name_to_index),
                                ('audioset', audioset_name_to_index)]:
         print(f"{logtag}Processing {domain}")
@@ -116,9 +135,6 @@ def compare_with_wordnet(aligned, openimages, audioset, wordnet_pairs=None, logt
         inddist = 1 - distance.cdist(indweight, indweight, metric='cosine')
         # build up the list of items so we don't have to index later
         wn_domain = []
-        aligned_domain = aligned_pairs[domain]
-        indpt_domain = indpt_pairs[domain]
-
         counter = 0
         for (name1, name2), score in wordnet_pairs.items():
             ind1 = name2index.get(name1)
@@ -126,18 +142,22 @@ def compare_with_wordnet(aligned, openimages, audioset, wordnet_pairs=None, logt
             # it may be present in wordnet but not in this domain
             if ind1 is None or ind2 is None:
                 continue
-            # check if it occurred at all
+            # check if it occurred at all: 0 indicates it did not occur
             if emb.coo_dense[ind1, ind2] == 0:
                 continue
             # otherwise just build the domain scores
             wn_domain.append(score)
+            # Store the indices as a large array of pairs
+            # we will use this for numpy fancy indexing later.
             domain_inds[domain].append((ind1, ind2))
             intersections[domain].append((name1, name2))
             if counter % 1000 == 0:
                 print(f"{logtag}{domain}: {counter} pairs")
             counter += 1
-
+        # Done. Build the structures.
         inds = np.array(domain_inds[domain]).T
+        # embdist/inddist are 2D numpy arrays. Use the inds for fancy indexing
+        # to get everything at once.
         aligned_domain = embdist[inds[0], inds[1]]
         indpt_domain = inddist[inds[0], inds[1]]
 
@@ -170,30 +190,23 @@ def compare_with_wordnet(aligned, openimages, audioset, wordnet_pairs=None, logt
 
 
 if __name__ == '__main__':
-    remote = socket.gethostname().endswith('pals.ucl.ac.uk')
-    if remote:
-        # set up pythonpath
-        ppath = '/home/petra/spond'
-        # set up data pth
-        datapath = '/home/petra/data'
-        resultspath = os.path.join(ppath, 'spond', 'experimental', 'glove',
-                                   '../results')
-        gpu = True
-    else:
-        ppath = '/opt/github.com/spond/spond/experimental'
-        #datapath = ppath
-        datapath = '/home/petra/data'
-
-        gpu = False
+    # set up pythonpath
+    ppath = '/home/petra/spond'
+    # set up data pth
+    datapath = '/home/petra/data'
+    resultspath = os.path.join(
+        ppath, 'spond', 'experimental', 'glove', 'results')
+    gpu = True
 
     sys.path.append(ppath)
+    # Set this flag if you only want to read pre-processed results.
     run = False
     seeds = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
     mmds = [0, 100]
     rcorrs = {mmd: {} for mmd in mmds}
     accs = {mmd: {} for mmd in mmds}
-
+    # Store for existing wordnet pairs. If this is the first run, comment these out
     store = pd.HDFStore(os.path.join(resultspath, 'AlignedGlove', 'wordnet_pairs.hdf5'), mode='r')
     wn_pairs = store['wordnet_pairs']
     store.close()
@@ -290,3 +303,5 @@ if __name__ == '__main__':
         'aligned': audio_stats['aligned'] - audio_stats['independent'],
         'aligned_mmd': audio_stats['aligned_mmd'] - audio_stats['independent'],
     })
+    # At this point the img_* and audio_* variables can be inspected
+    # from the interactive shell.

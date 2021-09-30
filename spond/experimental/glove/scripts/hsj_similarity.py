@@ -1,3 +1,8 @@
+# Run similarity comparisons with HSJ dataset.
+# HSJ is contained in mturk-771.csv: https://www2.mta.ac.il/~gideon/datasets/MTURK-771.csv
+# This script should be run from the interactive shell-
+# it sets variables which can then be inspected, dumped to tables, etc
+
 import itertools
 import os
 import socket
@@ -14,6 +19,10 @@ from spond.experimental.glove.probabilistic_glove import ProbabilisticGlove
 
 
 def compare_with_hsj(aligned, openimages, audioset):
+    # aligned: AlignedGlove instance
+    # openimages: ProbabilisticGlove instance for Open Images
+    # audioset: ProbabilisticGlove instance for AudioSet
+
     # Run comparison with HSJ given an AlignedGlove model and
     # 2 independently learnt ProbabilisticGlove models for openimages and audioset
 
@@ -29,6 +38,7 @@ def compare_with_hsj(aligned, openimages, audioset):
 
     datadict = aligned.data
 
+    # lowercase all the concept names to match HSJ
     openimages_name_to_index = {v.lower(): datadict.x_labels[k] for k, v in datadict.x_names.items()}
     audioset_name_to_index = {v.lower(): datadict.y_labels[k] for k, v in datadict.y_names.items()}
     counter = 0
@@ -40,7 +50,8 @@ def compare_with_hsj(aligned, openimages, audioset):
         # check openimages
         img1 = openimages_name_to_index.get(word1)
         img2 = openimages_name_to_index.get(word2)
-
+        # The following will only run if there is an exact match in the concept names.
+        # Calculate similarity for openimages and audioset of any matching pairs
         if img1 is not None and img2 is not None:
             for embtype, emb in [('aligned', aligned.aligner.x_emb),
                                  ('independent', openimages.glove_layer)]:
@@ -60,8 +71,7 @@ def compare_with_hsj(aligned, openimages, audioset):
 
                 audio1_emb = emb.weight[audio1].detach().cpu().numpy()
                 audio2_emb = emb.weight[audio2].detach().cpu().numpy()
-                # use dot product distance
-                # audio_score = (audio1_emb * audio2_emb).sum()
+                # Use cosine similarity.
                 audio_score = 1 - distance.cosine(audio1_emb, audio2_emb)
                 audioset_pairs[embtype][(word1, word2)] = audio_score
         counter += 1
@@ -96,23 +106,14 @@ def compare_with_hsj(aligned, openimages, audioset):
     )
 
 
-
 if __name__ == '__main__':
-    remote = socket.gethostname().endswith('pals.ucl.ac.uk')
-    if remote:
-        # set up pythonpath
-        ppath = '/home/petra/spond'
-        # set up data pth
-        datapath = '/home/petra/data'
-        resultspath = os.path.join(ppath, 'spond', 'experimental', 'glove',
+    # set up pythonpath
+    ppath = '/home/petra/spond'
+    # set up data pth
+    datapath = '/home/petra/data'
+    resultspath = os.path.join(ppath, 'spond', 'experimental', 'glove',
                                    '../results')
-        gpu = True
-    else:
-        ppath = '/opt/github.com/spond/spond/experimental'
-        #datapath = ppath
-        datapath = '/home/petra/data'
-
-        gpu = False
+    gpu = True
 
     sys.path.append(ppath)
 
@@ -149,8 +150,7 @@ if __name__ == '__main__':
     ret.update(out)
     torch.save(ret, os.path.join(resultspath, 'probabilistic_sup_hsj_similarity_cosine.pt'))
 
-
-
+    # temporary functions that can be called from the interactive shell
     def calc_accs(accs, mmd, domain):
         allaccs = pd.Series(accs[mmd][domain])
         return allaccs
@@ -206,3 +206,5 @@ if __name__ == '__main__':
         'aligned': audio_stats['aligned'] - audio_stats['independent'],
         'aligned_mmd': audio_stats['aligned_mmd'] - audio_stats['independent'],
     })
+    # At this point the img_* and audio_* variables can be inspected
+    # from the interactive shell.

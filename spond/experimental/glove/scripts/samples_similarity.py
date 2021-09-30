@@ -1,8 +1,11 @@
-# We want to take 100 samples of the following for each domain:
+# We want to take 100 samples of the following embeddings for each domain:
 #
 # ProbabilisticGlove
 # AlignedGlove without MMD
 # AlignedGlove with MMD
+#
+# Take the sample mean, and then take the correlation of the sample means
+# with various things.
 
 import gc
 import os
@@ -38,18 +41,19 @@ models = {
         }
     }
 }
-                         
+
 
 # map domain to name of attribute of AlignedGlove.aligner
 attrnames = {"openimages": "x_emb", "audioset": "y_emb"}
 
-
+# number of samples to take
 N = 100
 
 seeds = np.arange(1, 11)
 
+# Set this flag to actually take the samples and save to a file
+# then set to False and rerun
 run = False
-
 
 
 if not run:
@@ -72,7 +76,7 @@ if not run:
             del crosscorrs
             del data
             gc.collect()
-    
+
     store.close()
 else:
     sims = {
@@ -95,6 +99,7 @@ else:
             ind = models["ProbabilisticGlove"][0][domain](seed)
             ind_emb = ind.glove_layer.weights(n=N)
             ind_emb = ind_emb.cuda()
+            # take the mean of the samples
             ind_sim = torch.einsum('...ij,...kj->ik', ind_emb, ind_emb)/N
             sims[domain]['ProbabilisticGlove'][0][seed] = ind_sim.detach().cpu().numpy().ravel()
             del ind_emb
@@ -122,6 +127,9 @@ else:
             torch.cuda.empty_cache()
             gc.collect()
     store = pd.HDFStore(os.path.join(resultspath, "samples_similarity.hdf5"))
+    # Do not remove any of the del / gc calls.
+    # Each dataframe is quite big and thus we only allow one to be in memory
+    # at any given time.
     store['openimages_AlignedGlove_0'] = pd.DataFrame(sims['openimages']['AlignedGlove'][0])
     del sims['openimages']['AlignedGlove'][0]
     gc.collect()
@@ -131,7 +139,7 @@ else:
     store['openimages_ProbabilisticGlove'] = pd.DataFrame(sims['openimages']['ProbabilisticGlove'][0])
     del sims['openimages']['ProbabilisticGlove']
     gc.collect()
-    
+
     store['audioset_AlignedGlove_0'] = pd.DataFrame(sims['audioset']['AlignedGlove'][0])
     del sims['audioset']['AlignedGlove'][0]
     gc.collect()
@@ -142,6 +150,5 @@ else:
     del sims['audioset']['ProbabilisticGlove']
     gc.collect()
     store.close()
-    
-    #torch.save(sims, os.path.join(resultspath, "samples_similarity.pt"))
+
 

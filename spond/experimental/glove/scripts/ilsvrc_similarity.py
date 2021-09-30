@@ -1,8 +1,12 @@
-from nltk.corpus import wordnet as wn
-import nltk
-import itertools
+# Run similarity comparisons with ILSVRC dataset.
+# This was obtained from Brett.
+# All of the data files should be in /home/petra/data/ilsvrc
+# If they are not, they can be obtained from Brett
+
+# This script should be run from the interactive shell-
+# it sets variables which can then be inspected, dumped to tables, etc
+
 import os
-import socket
 import gc
 import sys
 import torch
@@ -18,25 +22,25 @@ from spond.experimental.glove.probabilistic_glove import ProbabilisticGlove
 
 
 def load_ilsvrc(names_fn, data_fn):
+    # get the data out of the files into a machine-readable structure
     names = pd.read_csv(names_fn, header=None, index_col=0).values.squeeze()
     N = len(names)
     data = np.zeros((N, N))
     for i, line in enumerate(open(data_fn, 'r')):
         items = line.strip().split(" ")
         data[i] = np.array([float(item) for item in items])
+    # Square DF whose index and columns are the same.
+    # This is a redundant structure but it's not very big
+    # and this makes writing / reading easier.
     return pd.DataFrame(data=data, index=names, columns=names)
+
 
 def compare_with_ilsvrc(aligned, openimages, audioset, ilsvrc_df, logtag=""):
     # Run comparison with HSJ given an AlignedGlove model and
     # 2 independently learnt ProbabilisticGlove models for openimages
     # which also hold the co-occurrences.
-    # a pair can be tested if it is present in HSJ and in a co-occurrence matrix
+    # a pair can be tested if it is present in ILSVRC and in a co-occurrence matrix
     # with a score of non zero.
-    # It takes a long time to run the wordnet_pairs, and they are the same for all embeddings
-    # so allow passing it in
-    # for now we will have to do an exact string match
-    # iterate over all the hsj word1 and word2 pairs and assume that
-    # keys for all: word1, word2
 
     datadict = aligned.data
     logtag = f"{logtag}:" if logtag else ""
@@ -55,15 +59,16 @@ def compare_with_ilsvrc(aligned, openimages, audioset, ilsvrc_df, logtag=""):
     intersections = {'openimages': [], 'audioset': []}
     aligned_pairs = {'openimages': [], 'audioset': []}
     indpt_pairs = {'openimages': [], 'audioset': []}
-    wn_pairs = {'openimages': [], 'audioset': []}
+    ilsvrc_pairs = {'openimages': [], 'audioset': []}
     rcorrs = {'openimages': {}, 'audioset': {}}
     domain_inds = {'openimages': [], 'audioset': []}
 
-    wn_names = ilsvrc_df.index
-    N = len(wn_names)
+    ilsvrc_names = ilsvrc_df.index
+    N = len(ilsvrc_names)
 
-    for domain, name2index in [#('openimages', openimages_name_to_index),
-                               ('audioset', audioset_name_to_index)
+    for domain, name2index in [
+        ('openimages', openimages_name_to_index),
+        ('audioset', audioset_name_to_index)
     ]:
         print(f"{logtag}Processing {domain}")
         emb = embs[domain]
@@ -77,38 +82,35 @@ def compare_with_ilsvrc(aligned, openimages, audioset, ilsvrc_df, logtag=""):
         # build up the list of items so we don't have to index later
 
         # build up the list of items so we don't have to index later
-        wn_domain = []
-        aligned_domain = aligned_pairs[domain]
-        indpt_domain = indpt_pairs[domain]
+        ilsvrc_domain = []
         counter = 0
         for i in range(N):
-            name1 = wn_names[i]
+            name1 = ilsvrc_names[i]
             if domain == 'audioset' and name1 == 'tick':
                 # we know that this one is a wrong mapping,
                 # because the 'tick' referred to in ImageNet is the insect
                 continue
-            #if i < 398 and name1 not in ("tick", "goose", "fly", "bee"):
-            #    continue
+            # Munge the ILSVRC names to be the same as the domain names
             n1 = name1.replace("_", " ")
             n1 = n1[0].upper() + n1[1:]
             for j in range(i+1, N):
                 score = ilsvrc_df.values[i, j]
-                name2 = wn_names[j]
+                name2 = ilsvrc_names[j]
+                # convert _ to space, and uppercase the first letter.
                 n2 = name2.replace("_",  " ")
                 n2 = n2[0].upper() + n2[1:]
                 ind1 = name2index.get(n1)
                 ind2 = name2index.get(n2)
-                # it may be present in wordnet but not in this domain
+                # it may be present in ILSVRC but not in this domain
                 if ind1 is None or ind2 is None:
                     continue
 
-                # check if it occurred at all
+                # check if it occurred at all- a concept can be present in the
+                # domain concept universe, but maybe it occurred with freq = 0
                 if emb.coo_dense[ind1, ind2] == 0:
                     continue
-                #import pdb
-                #pdb.set_trace()
                 # otherwise just build the domain scores
-                wn_domain.append(score)
+                ilsvrc_domain.append(score)
 
                 domain_inds[domain].append((ind1, ind2))
                 intersections[domain].append((name1, name2))
@@ -121,7 +123,7 @@ def compare_with_ilsvrc(aligned, openimages, audioset, ilsvrc_df, logtag=""):
         aligned_domain = embdist[inds[0], inds[1]]
         indpt_domain = inddist[inds[0], inds[1]]
 
-        wn_pairs[domain] = np.array(wn_domain)
+        ilsvrc_pairs[domain] = np.array(ilsvrc_domain)
         aligned_pairs[domain] = np.array(aligned_domain)
         indpt_pairs[domain] = np.array(indpt_domain)
         # Done building indexes, now calculate correlations
@@ -129,7 +131,7 @@ def compare_with_ilsvrc(aligned, openimages, audioset, ilsvrc_df, logtag=""):
                                 ('independent', indpt_pairs[domain])]:
             rcorr = stats.spearmanr(
                 values,
-                wn_pairs[domain]
+                ilsvrc_pairs[domain]
             )
             rcorrs[domain][embtype] = rcorr[0]
             rcorrs[domain][f"{embtype}_p"] = rcorr[1]
@@ -142,30 +144,27 @@ def compare_with_ilsvrc(aligned, openimages, audioset, ilsvrc_df, logtag=""):
     audioset_intersection = pd.Index(intersections['audioset'])
     openimages_intersection = pd.Index(intersections['openimages'])
     return dict(
+        # spearman correlation of ILSVRC similarity with the domain similarity
         rcorrs=rcorrs,
+        # intersection of audioset and ILSVRC concepts
         audioset_intersection=audioset_intersection,
+        # intersection of openimages and ILSVRC concepts
         openimages_intersection=openimages_intersection
     )
 
 
 if __name__ == '__main__':
-    remote = socket.gethostname().endswith('pals.ucl.ac.uk')
-    if remote:
-        # set up pythonpath
-        ppath = '/home/petra/spond'
-        # set up data pth
-        datapath = '/home/petra/data'
-        resultspath = os.path.join(ppath, 'spond', 'experimental', 'glove',
-                                   '../results')
-        gpu = True
-    else:
-        ppath = '/opt/github.com/spond/spond/experimental'
-        #datapath = ppath
-        datapath = '/home/petra/data'
-
-        gpu = False
+    # set up pythonpath
+    ppath = '/home/petra/spond'
+    # set up data pth
+    datapath = '/home/petra/data'
+    resultspath = os.path.join(
+        ppath, 'spond', 'experimental', 'glove', '../results')
+    gpu = True
 
     sys.path.append(ppath)
+    # Set this flag if you want to do the calculations
+    # If set to False, then the results will be processed from the file.
     run = True
     seeds = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
 
@@ -173,11 +172,13 @@ if __name__ == '__main__':
     rcorrs = {mmd: {} for mmd in mmds}
     accs = {mmd: {} for mmd in mmds}
 
-    ipth = os.path.join(ppath, 'spond', 'experimental', 'glove')
+    #ipth = os.path.join(ppath, 'spond', 'experimental', 'glove')
+    ipth = os.path.join(datapath, 'ilsvrc')
     ilsvrc_df = load_ilsvrc(os.path.join(ipth, 'class_names.txt'),
                             os.path.join(ipth, 'marg_smat_4-221-6.txt'))
     ret = {}
-    ret = torch.load(os.path.join(resultspath, 'probabilistic_sup_ilsvrc_similarity_cosine.pt'))
+    outfile = os.path.join(resultspath, 'probabilistic_sup_ilsvrc_similarity_cosine.pt')
+    #ret = torch.load(os.path.join(resultspath, 'probabilistic_sup_ilsvrc_similarity_cosine.pt'))
     if run:
         for seed, mmd in itertools.product(seeds, mmds):
             print(f"Processing seed={seed}, mmd={mmd}")
@@ -209,9 +210,9 @@ if __name__ == '__main__':
             del out
             gc.collect()
         ret.update(dict(rcorrs=rcorrs, accs=accs))
-        #torch.save(ret, os.path.join(resultspath, 'probabilistic_sup_ilsvrc_similarity_no_animals_cosine.pt'))
+        torch.save(ret, os.path.join(resultspath, outfile))
     else:
-        ret = torch.load(os.path.join(resultspath, 'probabilistic_sup_ilsvrc_similarity_cosine.pt'))
+        ret = torch.load(os.path.join(resultspath, outfile))
 
     accs = ret['accs']
 
@@ -268,3 +269,5 @@ if __name__ == '__main__':
         'aligned': audio_stats['aligned'] - audio_stats['independent'],
         'aligned_mmd': audio_stats['aligned_mmd'] - audio_stats['independent'],
     })
+    # At this point the img_* and audio_* variables can be inspected
+    # from the interactive shell.

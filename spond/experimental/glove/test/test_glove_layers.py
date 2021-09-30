@@ -143,7 +143,7 @@ class AlignedGloveLayerTest(TestCase):
 
         # test both cases of probabilistic.
         # If probabilistic=True then the glove_layer will be ProbabilisticGloveLayer
-        # and GloveLayer if not. 
+        # and GloveLayer if not.
         for probabilistic, test_cls in [(True, ProbabilisticGloveLayerTest),
                                         (False, GloveLayerTest)]:
 
