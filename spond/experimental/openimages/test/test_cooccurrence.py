@@ -2,7 +2,7 @@ import os
 import unittest
 import torch
 
-from spond.experimental.openimage import readfile
+from spond.experimental.openimages import readfile
 
 
 class TestProcessing(unittest.TestCase):
@@ -126,4 +126,3 @@ class TestProcessing(unittest.TestCase):
 
         torch.allclose(coo.indices(), coo_parallel.indices())
         torch.allclose(coo.values(), coo_parallel.values())
-

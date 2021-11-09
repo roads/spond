@@ -33,10 +33,15 @@ def readlabels(labelsfn, rootdir='.'):
     """
     Parameters
     ----------
-    filename: str
-        File containing the labels
+    labelsfn: str
+        File containing the labels, or an open file handle / stringIO
+        File must have no spare whitespace!
+        First line will be treated as the header if it starts with #
+        or does not have /m/ at the start. This strange behaviour is
+        necessary because the files are not consistent.
     rootdir: str, optional, default to "."
         If passed, will be the directory the files live in
+        will only have an effect if labelsfn is a string.
 
     Returns
     -------
@@ -45,11 +50,16 @@ def readlabels(labelsfn, rootdir='.'):
     """
     labels = {}
     names = {}
-    if rootdir is not None:
-        fn = os.path.join(rootdir, labelsfn)
-    else:
-        fn = labelsfn
-    with open(fn) as fh:
+    fn = labelsfn
+    try:
+        # first check if it's a file like object like stringio
+        fn.seek
+        fh = fn
+    except:
+        if rootdir is not None:
+            fn = os.path.join(rootdir, labelsfn)
+        fh = open(fn)
+    try:
         for idx, line in enumerate(fh):
             # some files have the first line as a header
             # some do not
@@ -60,9 +70,14 @@ def readlabels(labelsfn, rootdir='.'):
                     continue
             # label,objectname - maybe do something else with objectname later
             # for now we only care about label
-            label, objectname = line.strip().split(",")[:2]
+            label, objectname = line.strip().split(",", 1)[:2]
             labels[label] = idx-1
+            # the objectname may have " around it
+            if objectname.startswith("\"") and objectname.endswith("\""):
+                objectname = objectname[1:-1]
             names[label] = objectname
+    finally:
+        fh.close()
     return labels, names
 
 

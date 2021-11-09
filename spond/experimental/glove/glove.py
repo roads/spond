@@ -1,3 +1,7 @@
+# The GloveModel class will learn GloVe embeddings given a dataset that is
+# created from a co-occurrence matrix. It is not very useful because it is not
+# really usable as a layer.
+
 import os
 import socket
 import numpy as np
@@ -9,7 +13,7 @@ import torch.nn.functional as F
 from spond.experimental.glove.datasets import GloveWordsDataset, GloveDataset
 from spond.experimental.utils import setup_torch
 
-device = setup_torch()
+device = "cuda:0" #setup_torch()
 
 
 class GloveModel(nn.Module):
@@ -128,7 +132,8 @@ if __name__ == '__main__':
             #labelsfn = 'oidv6-class-descriptions.csv'
 
             import sys
-
+            import socket
+            hostname = socket.gethostname()
             if hostname == 'tempoyak':
                 ppath = '/opt/github.com/spond/spond/experimental'
             else:
@@ -144,12 +149,12 @@ if __name__ == '__main__':
                 v: names[k] for k, v in labels.items()
             }
 
-            emb_i = glove.wi.weight.data.numpy()
-            emb_j = glove.wj.weight.data.numpy()
+            emb_i = glove.wi.weight.data.cpu().numpy()
+            emb_j = glove.wj.weight.data.cpu().numpy()
             emb = emb_i + emb_j
             # find the most commonly co-occuring items
             # These are the items which appear the most times
-            dense = dataset.cooc_mat.to_dense()
+            dense = dataset.cooc_mat.to_dense().cpu()
             incidences = dense.sum(axis=0)
             nonzero = np.nonzero(incidences)
             nonzero_incidences = incidences[nonzero]

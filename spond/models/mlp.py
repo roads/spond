@@ -27,16 +27,19 @@ import torch.nn as nn
 class MLP(nn.Module):
     """Multilayer Perceptron to map from one system to another."""
 
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, output_size=None):
         """Initialize."""
         super(MLP, self).__init__()
         self._input_size = input_size
         self._hidden_size = hidden_size
+        if output_size is None:
+            output_size = hidden_size
+        self._output_size = output_size
 
         self.fc1 = nn.Linear(self._input_size, self._hidden_size)
         self.fc2 = nn.Linear(self._hidden_size, self._hidden_size)
         self.fc3 = nn.Linear(self._hidden_size, self._hidden_size)
-        self.fc4 = nn.Linear(self._hidden_size, self._input_size)
+        self.fc4 = nn.Linear(self._hidden_size, self._output_size)
 
         # Glorot uniform initialization
         nn.init.xavier_uniform_(self.fc1.weight)
